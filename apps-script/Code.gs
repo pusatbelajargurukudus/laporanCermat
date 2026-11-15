@@ -12,7 +12,7 @@
  *   3. Deploy > New deployment > Web app (Execute as: Me, Who has access: Anyone)
  */
 
-var APP_VERSION = '2.2.0';
+var APP_VERSION = '2.3.0';
 var SCHEMA = '2.1';
 var SESSION_DAYS = 30;
 var MAX_FAIL = 5;          // salah sandi berturut-turut
@@ -138,6 +138,7 @@ var ACTIONS = {
   listUsers: { role: 'admin', fn: listUsers_ },
   saveUser: { role: 'admin', fn: saveUser_ },
   resetPassword: { role: 'admin', fn: resetPassword_ },
+  deleteUser: { role: 'admin', fn: deleteUser_ },
   usage: { role: 'admin', fn: function () { return { used: DriveApp.getStorageUsed(), limit: DriveApp.getStorageLimit() }; } }
 };
 
@@ -483,6 +484,11 @@ function saveReport_(req, user) {
   var sk = sekolahById_(k.sekolahId);
   if (!canFill_(user, sk)) throw err_(user.peran === 'admin' ? 'Admin hanya bisa melihat laporan. Pengisian oleh fasilitator pemegang sekolah.' : 'Laporan ini dipegang fasilitator lain. Anda hanya bisa melihat.', 'FORBIDDEN');
   var meta = req.meta || {};
+  if (Array.isArray(rep.fasilHadir)) {
+    var map = {};
+    try { map = JSON.parse(PropertiesService.getScriptProperties().getProperty('RENAMES') || '{}'); } catch (x) { map = {}; }
+    rep.fasilHadir = rep.fasilHadir.map(function (x) { return map[String(x).toLowerCase()] || x; });
+  }
   var json = JSON.stringify(rep);
   if (json.length > 5000000) throw err_('Data laporan terlalu besar.', 'BAD');
   var res;
@@ -631,33 +637,108 @@ function listUsers_() {
   });
 }
 
+var USERNAME_RE = /^[A-Za-z0-9._-]{3,30}$/;
+var USERNAME_MSG = 'Username 3–30 karakter: huruf, angka, titik, minus, atau garis bawah (tanpa spasi).';
+
+/* Tambah (mode "create") atau ubah (mode "edit") pengguna. Ubah username ikut memperbarui sekolah, sesi & laporan. */
 function saveUser_(req, user) {
   var d = req.user || {};
+  var mode = d.mode === 'create' ? 'create' : 'edit';
   var uname = String(d.username || '').trim();
-  if (!/^[A-Za-z0-9._-]{3,30}$/.test(uname)) throw err_('Username 3–30 karakter: huruf, angka, titik, minus, atau garis bawah.');
+  if (!USERNAME_RE.test(uname)) throw err_(USERNAME_MSG);
   var peran = ROLES.indexOf(d.peran) >= 0 ? d.peran : 'fasilitator';
   var nama = String(d.nama || '').trim().slice(0, 120);
   if (!nama) throw err_('Nama lengkap wajib diisi.');
   var aktif = d.aktif === false ? 'tidak' : 'ya';
+  var nip = String(d.nip || '').replace(/[^0-9 ]/g, '').trim().slice(0, 30);
+  var info = {};
   lock_(function () {
     var ex = findUser_(uname);
-    if (ex) {
-      if (ex.username.toLowerCase() === user.username.toLowerCase() && (peran !== 'admin' || aktif !== 'ya')) {
-        throw err_('Anda tidak bisa menurunkan peran atau menonaktifkan akun Anda sendiri.');
-      }
-      var patch = { nama: nama, peran: peran, aktif: aktif };
-      if (d.nip !== undefined) patch.nip = String(d.nip || '').replace(/[^0-9 ]/g, '').trim().slice(0, 30);
-      update_('Pengguna', ex._row, patch);
-      if (aktif !== 'ya') removeUserSessions_(ex.username, '');
-      if (d.password) { checkPw_(d.password); setPassword_(findUser_(uname), d.password); }
-    } else {
+    if (mode === 'create') {
+      if (ex) throw err_('Username "' + uname + '" sudah dipakai.');
       checkPw_(d.password);
-      insert_('Pengguna', { username: uname, nama: nama, peran: peran, aktif: aktif, dibuat: now_(), nip: String(d.nip || '').replace(/[^0-9 ]/g, '').trim() }, function (o) {
+      insert_('Pengguna', { username: uname, nama: nama, peran: peran, aktif: aktif, dibuat: now_(), nip: nip }, function (o) {
         o.salt = newSalt_(); o.hash = hash_(o.salt, String(d.password));
       });
       log_(user.username, 'tambah pengguna', uname + ' (' + peran + ')');
+      return;
+    }
+    if (!ex) throw err_('Pengguna tidak ditemukan.', 'NOTFOUND');
+    var self = ex.username.toLowerCase() === user.username.toLowerCase();
+    if (self && (peran !== 'admin' || aktif !== 'ya')) throw err_('Anda tidak bisa menurunkan peran atau menonaktifkan akun Anda sendiri.');
+    var baru = String(d.newUsername || '').trim();
+    if (baru && baru !== ex.username) {
+      if (!USERNAME_RE.test(baru)) throw err_(USERNAME_MSG);
+      var lain = findUser_(baru);
+      if (lain && lain.username.toLowerCase() !== ex.username.toLowerCase()) throw err_('Username "' + baru + '" sudah dipakai pengguna lain.');
+      info.reportsUpdated = renameUser_(ex.username, baru);
+      info.renamed = { from: ex.username, to: baru };
+      log_(user.username, 'ganti username', ex.username + ' → ' + baru);
+      ex = findUser_(baru);
+    }
+    update_('Pengguna', ex._row, { nama: nama, peran: peran, aktif: aktif, nip: nip });
+    if (aktif !== 'ya') removeUserSessions_(ex.username, '');
+    if (d.password) { checkPw_(d.password); setPassword_(findUser_(ex.username), d.password); }
+  });
+  return { users: listUsers_(), info: info };
+}
+
+/* Ganti username di semua tempat yang menyimpannya. Dipanggil di dalam lock_. */
+function renameUser_(lama, baru) {
+  var low = lama.toLowerCase();
+  var u = findUser_(lama);
+  update_('Pengguna', u._row, { username: baru });
+  // catat pemetaan username lama -> baru (untuk data yang masih terkirim dari perangkat dengan nama lama)
+  var props = PropertiesService.getScriptProperties();
+  var map = {};
+  try { map = JSON.parse(props.getProperty('RENAMES') || '{}'); } catch (x) { map = {}; }
+  Object.keys(map).forEach(function (k) { if (String(map[k]).toLowerCase() === low) map[k] = baru; });
+  map[low] = baru;
+  delete map[baru.toLowerCase()];
+  props.setProperty('RENAMES', JSON.stringify(map));
+  // sekolah binaan (Fasilitator 1/2)
+  var sekolahIds = [];
+  rows_('Sekolah').forEach(function (sk) {
+    var f = fasilList_(sk);
+    if (f.some(function (x) { return x.toLowerCase() === low; })) {
+      sekolahIds.push(sk.id);
+      update_('Sekolah', sk._row, { fasil: f.map(function (x) { return x.toLowerCase() === low ? baru : x; }).join('|') });
     }
   });
+  // sesi login tetap berlaku dengan username baru
+  var cache = CacheService.getScriptCache();
+  rows_('Sesi').forEach(function (r) {
+    if (r.username.toLowerCase() === low) { update_('Sesi', r._row, { username: baru }); cache.remove('s:' + r.tokenHash); }
+  });
+  // "fasilitator yang hadir" di laporan sekolah binaannya
+  var n = 0;
+  rows_('Rekap').forEach(function (r) {
+    if (sekolahIds.indexOf(r.sekolahId) < 0 || !r.fileId) return;
+    try {
+      var f = DriveApp.getFileById(r.fileId);
+      var rep = JSON.parse(f.getBlob().getDataAsString('UTF-8'));
+      if (!Array.isArray(rep.fasilHadir) || !rep.fasilHadir.some(function (x) { return String(x).toLowerCase() === low; })) return;
+      rep.fasilHadir = rep.fasilHadir.map(function (x) { return String(x).toLowerCase() === low ? baru : x; });
+      f.setContent(JSON.stringify(rep));
+      update_('Rekap', r._row, { version: String((Number(r.version) || 0) + 1) });
+      n++;
+    } catch (x) { /* lewati berkas yang tidak terbaca */ }
+  });
+  return n;
+}
+
+function deleteUser_(req, user) {
+  var u = findUser_(req.username);
+  if (!u) throw err_('Pengguna tidak ditemukan.', 'NOTFOUND');
+  if (u.username.toLowerCase() === user.username.toLowerCase()) throw err_('Anda tidak bisa menghapus akun Anda sendiri.');
+  var sks = rows_('Sekolah').filter(function (sk) { return inList_(sk, u); }).map(function (sk) { return sk.nama; });
+  if (sks.length) throw err_(u.nama + ' masih memegang ' + sks.join(', ') + '. Lepaskan dulu di menu Data Sekolah.', 'INUSE', { sekolah: sks });
+  if (u.peran === 'admin' && rows_('Pengguna').filter(function (x) { return x.peran === 'admin' && x.aktif === 'ya'; }).length <= 1) throw err_('Admin terakhir tidak bisa dihapus.');
+  lock_(function () {
+    removeUserSessions_(u.username, '');
+    deleteRow_('Pengguna', findUser_(u.username)._row);
+  });
+  log_(user.username, 'hapus pengguna', u.username + ' (' + u.nama + ')');
   return listUsers_();
 }
 

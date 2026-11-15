@@ -1,10 +1,10 @@
 /* Service worker: aplikasi tetap bisa dibuka saat sinyal lemah/offline.
  * Naikkan CACHE_VERSION setiap kali ada file yang diubah. */
-const CACHE_VERSION = 'laporan-cermat-v4';
-const FILES = ['./', 'index.html', 'css/app.css?v=4', 'manifest.webmanifest',
+const CACHE_VERSION = 'laporan-cermat-v5';
+const FILES = ['./', 'index.html', 'css/app.css?v=5', 'manifest.webmanifest',
   'icons/logo-mark.png', 'icons/logo-cermat.png', 'icons/favicon-64.png', 'icons/icon-192.png',
   'vendor/pdf-lib.min.js', 'vendor/jszip.min.js',
-  'js/silabus.js?v=4', 'js/db.js?v=4', 'js/api.js?v=4', 'js/importer.js?v=4', 'js/report.js?v=4', 'js/pdf.js?v=4', 'js/app.js?v=4'];
+  'js/silabus.js?v=5', 'js/db.js?v=5', 'js/api.js?v=5', 'js/importer.js?v=5', 'js/report.js?v=5', 'js/pdf.js?v=5', 'js/app.js?v=5'];
 const FONT_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com'];
 
 self.addEventListener('install', e => {

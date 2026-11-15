@@ -1334,40 +1334,118 @@
   /* =========================================================
    * KELOLA PENGGUNA (admin)
    * ========================================================= */
+  const skOfUser = u => S.sekolah.filter(s => inFasil(s, u.username)).map(s => s.nama);
   async function renderPengguna() {
-    app.innerHTML = pageHead('Kelola Pengguna', 'Akun fasilitator, admin, dan pemantau.') + '<div class="loading"><span class="spin"></span> Memuat…</div>';
+    const head = pageHead('Kelola Pengguna', 'Akun fasilitator, admin, dan pemantau.', `<button class="btn pri" data-act="user-new">${ic('plus')}Tambah pengguna</button>`);
+    app.innerHTML = head + '<div class="loading"><span class="spin"></span> Memuat…</div>';
     let users, usage = null;
-    try { users = await API.call('listUsers'); } catch (e) { app.innerHTML = emptyState('alert', 'Gagal memuat', esc(e.message)); return; }
+    try { users = await API.call('listUsers'); } catch (e) { app.innerHTML = head + emptyState('alert', 'Gagal memuat', esc(e.message)); return; }
     try { usage = await API.call('usage'); } catch (e) { /* abaikan */ }
+    S.users = users;
     S.pengguna = users.map(u => ({ username: u.username, nama: u.nama, peran: u.peran, aktif: u.aktif, nip: u.nip })); cacheBoot();
-    const skOf = u => S.sekolah.filter(s => inFasil(s, u.username)).map(s => s.nama);
     const pct = usage ? Math.round(usage.used / usage.limit * 1000) / 10 : 0;
-    app.innerHTML = pageHead('Kelola Pengguna', 'Akun fasilitator, admin, dan pemantau.') + `
-      <div class="card"><div class="card-h">${ic('users')}<h2>Daftar pengguna (${users.length})</h2></div>
-        <div class="tbwrap"><table class="tb users"><thead><tr><th>Username</th><th>Nama lengkap (dengan gelar)</th><th>NIP</th><th>Peran</th><th>Aktif</th><th>Sekolah binaan</th><th>Login terakhir</th><th></th></tr></thead><tbody>
-        ${users.map(u => `<tr data-user="${esc(u.username)}"><td><b>${esc(u.username)}</b></td>
-          <td><input type="text" data-uf="nama" value="${esc(u.nama)}" style="min-width:220px"></td>
-          <td><input type="text" data-uf="nip" value="${esc(u.nip)}" style="min-width:150px" inputmode="numeric"></td>
-          <td><select data-uf="peran">${opts(['admin', 'fasilitator', 'pemantau'], u.peran, ['Admin', 'Fasilitator', 'Pemantau'])}</select></td>
-          <td><input type="checkbox" data-uf="aktif"${u.aktif ? ' checked' : ''}></td>
-          <td class="small">${esc(skOf(u).join(', ') || '-')}</td><td class="small muted">${u.terakhirLogin ? fmtWaktu(Date.parse(u.terakhirLogin)) : '-'}</td>
-          <td style="white-space:nowrap"><button class="btn sm pri" data-act="user-save">Simpan</button> <button class="btn sm" data-act="user-reset">Reset sandi</button></td></tr>`).join('')}
-        </tbody></table></div></div>
-      <div class="card"><div class="card-h">${ic('plus')}<h2>Tambah pengguna</h2></div><div class="grid2">
-        <div><label class="f">Username</label><input type="text" id="nu-user" placeholder="mis. anton"></div>
-        <div><label class="f">Nama lengkap dengan gelar</label><input type="text" id="nu-nama" placeholder="Anton Widiyatmoko, S.Pd., M.Pd."></div>
-        <div><label class="f">Peran</label><select id="nu-peran">${opts(['fasilitator', 'pemantau', 'admin'], 'fasilitator', ['Fasilitator', 'Pemantau', 'Admin'])}</select></div>
-        <div><label class="f">Password awal (min. 6 karakter)</label><input type="text" id="nu-pass" autocomplete="off"></div></div>
-        <div class="row" style="margin-top:14px"><button class="btn pri" data-act="user-add">${ic('plus')}Tambah pengguna</button>
-        <span class="small muted">Sampaikan username & password awal ke yang bersangkutan; ia bisa menggantinya sendiri.</span></div></div>
+    const order = { admin: 0, fasilitator: 1, pemantau: 2 };
+    const list = users.slice().sort((a, b) => (order[a.peran] - order[b.peran]) || a.nama.localeCompare(b.nama, 'id'));
+    app.innerHTML = head + `
+      <div class="card" style="padding:0;overflow:hidden"><div class="ulist">
+        ${list.map(u => {
+          const sks = skOfUser(u);
+          const salah = sks.length && u.peran !== 'fasilitator';
+          return `<div class="urow${u.aktif ? '' : ' off'}">
+            <span class="bubble">${esc(initials(u.nama))}</span>
+            <div class="um"><b>${esc(u.nama)}</b><span>${esc(u.username)}${u.nip ? ' · NIP ' + esc(u.nip) : ''}${eqU(u.username, S.user.username) ? ' · <i>Anda</i>' : ''}</span></div>
+            <div class="ur"><span class="pill ${u.peran === 'admin' ? 'navy' : u.peran === 'fasilitator' ? 'gold' : 'kosong'}">${PERAN[u.peran]}</span>${u.aktif ? '' : ' <span class="pill draf">nonaktif</span>'}</div>
+            <div class="us small">${sks.length ? esc(sks.join(', ')) : '<span class="muted">—</span>'}
+              ${salah ? `<div class="warnline">${ic('alert')} Peran ${PERAN[u.peran]} tidak bisa mengisi laporan sekolah ini</div>` : ''}</div>
+            <div class="ul tiny muted">${u.terakhirLogin ? 'Login ' + fmtWaktu(Date.parse(u.terakhirLogin)) : 'Belum pernah login'}</div>
+            <button class="btn sm" data-act="user-edit" data-u="${esc(u.username)}">${ic('edit')}Edit</button>
+          </div>`;
+        }).join('')}
+      </div></div>
       <div class="grid2">
         <div class="card"><div class="card-h">${ic('info')}<h3>Peran</h3></div><ul class="small" style="margin:0;padding-left:18px">
-          <li><b>Admin</b> — mengelola pengguna, pengaturan program, semua sekolah & laporan.</li>
-          <li><b>Fasilitator</b> — mendaftarkan & mengisi data sekolah binaannya (2 fasil per sekolah), mengisi laporannya; melihat & mengunduh semua laporan.</li>
+          <li><b>Admin</b> — mengelola pengguna, pengaturan program, sekolah binaan & pasangan fasilitator; melihat semua laporan.</li>
+          <li><b>Fasilitator</b> — melengkapi data sekolah binaannya & mengisi laporannya; melihat & mengunduh semua laporan.</li>
           <li><b>Pemantau</b> — hanya melihat & mengunduh.</li></ul></div>
         ${usage ? `<div class="card"><div class="card-h">${ic('cloud')}<h3>Penyimpanan Google Drive admin</h3></div><div class="bar big"><i style="width:${Math.min(100, pct)}%"></i></div>
           <p class="small" style="margin:10px 0 0">${(usage.used / 1073741824).toFixed(2)} GB dari ${(usage.limit / 1073741824).toFixed(0)} GB terpakai (${pct}%) — termasuk Gmail & Google Photos akun admin.</p></div>` : ''}
       </div>`;
+  }
+
+  function openUserModal(uname) {
+    const u = uname ? (S.users || []).find(x => eqU(x.username, uname)) : null;
+    const create = !u;
+    const sks = u ? skOfUser(u) : [];
+    const self = u && eqU(u.username, S.user.username);
+    const bg = document.createElement('div');
+    bg.className = 'modal-bg';
+    bg.innerHTML = `<div class="modal" style="width:min(620px,100%)"><div class="mh"><b>${create ? 'Tambah pengguna' : 'Edit pengguna'}</b><span class="spacer"></span><button class="iconbtn" data-um="close" title="Tutup">${ic('x')}</button></div>
+      <div class="mb" style="padding:20px 22px">
+        <div class="grid2">
+          <div><label class="f">Username</label><input type="text" id="um-user" value="${esc(u ? u.username : '')}" placeholder="mis. anton" autocomplete="off">
+            <div class="tiny muted" style="margin-top:4px">3–30 karakter, tanpa spasi</div></div>
+          <div><label class="f">Peran</label><select id="um-peran"${self ? ' disabled' : ''}>${opts(['fasilitator', 'pemantau', 'admin'], u ? u.peran : 'fasilitator', ['Fasilitator', 'Pemantau', 'Admin'])}</select></div>
+        </div>
+        <div style="margin-top:14px"><label class="f">Nama lengkap (dengan gelar)</label><input type="text" id="um-nama" value="${esc(u ? u.nama : '')}" placeholder="Anton Widiyatmoko, S.Pd., M.Pd."></div>
+        <div class="grid2" style="margin-top:14px">
+          <div><label class="f">NIP (opsional)</label><input type="text" id="um-nip" value="${esc(u ? u.nip : '')}" inputmode="numeric"></div>
+          ${create ? `<div><label class="f">Password awal (min. 6 karakter)</label><input type="text" id="um-pass" autocomplete="off"></div>`
+            : `<div><label class="f">Status</label><div class="fh" style="gap:8px"><label style="padding:9px 12px"><input type="radio" name="um-aktif" value="1"${u.aktif ? ' checked' : ''}${self ? ' disabled' : ''}> Aktif</label><label style="padding:9px 12px"><input type="radio" name="um-aktif" value="0"${u.aktif ? '' : ' checked'}${self ? ' disabled' : ''}> Nonaktif</label></div></div>`}
+        </div>
+        ${u ? `<div style="margin-top:14px"><label class="f">Sekolah binaan</label><div class="ro-val">${sks.length ? esc(sks.join(', ')) : '—'} <span class="tiny muted" style="margin-left:auto">diatur di Data Sekolah</span></div></div>` : ''}
+        <div id="um-warn"></div>
+        <div class="row" style="margin-top:20px">
+          <button class="btn pri" data-um="save">${ic('check')}Simpan</button>
+          ${u ? `<button class="btn" data-um="reset">${ic('lock')}Reset password</button><span class="spacer"></span>${self ? '' : `<button class="btn danger" data-um="delete">${ic('trash')}Hapus pengguna</button>`}` : ''}
+        </div>
+      </div></div>`;
+    document.body.appendChild(bg);
+    const $ = id => bg.querySelector('#' + id);
+    const warn = () => {
+      const w = $('um-warn'); const msgs = [];
+      const nu = $('um-user').value.trim();
+      if (u && nu && nu !== u.username) msgs.push(`Username <b>${esc(u.username)}</b> akan diganti menjadi <b>${esc(nu)}</b>. Sekolah, laporan, dan sesi login ikut diperbarui otomatis. Sampaikan username baru ke yang bersangkutan.`);
+      if (sks.length && $('um-peran').value !== 'fasilitator') msgs.push(`Pengguna ini memegang <b>${esc(sks.join(', '))}</b>. Dengan peran ${PERAN[$('um-peran').value]}, ia tidak bisa mengisi laporan sekolah tersebut.`);
+      w.innerHTML = msgs.map(m => `<div class="banner warn small" style="margin:14px 0 0">${ic('alert')}<div>${m}</div></div>`).join('');
+    };
+    bg.addEventListener('input', warn); bg.addEventListener('change', warn); warn();
+    const close = () => bg.remove();
+    bg.addEventListener('click', async e => {
+      if (e.target === bg) return close();
+      const b = e.target.closest('[data-um]'); if (!b) return;
+      const act = b.dataset.um;
+      if (act === 'close') return close();
+      if (act === 'save') {
+        const d = { mode: create ? 'create' : 'edit', username: create ? $('um-user').value.trim() : u.username, nama: $('um-nama').value.trim(),
+          nip: $('um-nip').value, peran: $('um-peran').value };
+        if (create) { d.password = $('um-pass').value; d.aktif = true; }
+        else { d.aktif = (bg.querySelector('input[name="um-aktif"]:checked') || {}).value !== '0'; const nu = $('um-user').value.trim(); if (nu !== u.username) d.newUsername = nu; }
+        if (!d.username || !d.nama) return toast('Isi username dan nama lengkap.', true);
+        b.disabled = true;
+        try {
+          const r = await API.call('saveUser', { user: d });
+          close();
+          if (r.info && r.info.renamed) {
+            if (eqU(r.info.renamed.from, S.user.username)) S.user.username = r.info.renamed.to;
+            toast(`Username diganti menjadi ${r.info.renamed.to}${r.info.reportsUpdated ? ' · ' + r.info.reportsUpdated + ' laporan diperbarui' : ''}.`, false, 5000);
+          } else toast(create ? 'Pengguna ' + d.username + ' ditambahkan.' : 'Perubahan tersimpan.');
+          await refreshRekap(true); setNav(); renderPengguna();
+        } catch (er) { toast(er.message, true, 6000); b.disabled = false; }
+      }
+      if (act === 'reset') {
+        const pw = prompt('Password baru untuk ' + u.username + ' (min. 6 karakter):');
+        if (!pw) return;
+        try { await API.call('resetPassword', { username: u.username, password: pw }); toast('Password ' + u.username + ' diganti. Sampaikan ke yang bersangkutan.', false, 5000); }
+        catch (er) { toast(er.message, true, 5000); }
+      }
+      if (act === 'delete') {
+        if (sks.length) return toast(u.nama + ' masih memegang ' + sks.join(', ') + '. Lepaskan dulu di menu Data Sekolah.', true, 6000);
+        if (!confirm('Hapus akun ' + u.username + ' (' + u.nama + ')? Laporan yang pernah diisinya tetap tersimpan.')) return;
+        try { await API.call('deleteUser', { username: u.username }); close(); toast('Pengguna ' + u.username + ' dihapus.'); await refreshRekap(true); renderPengguna(); }
+        catch (er) { toast(er.message, true, 6000); }
+      }
+    });
+    setTimeout(() => (create ? $('um-user') : $('um-nama')).focus(), 50);
   }
 
   /* =========================================================
@@ -1580,6 +1658,8 @@
         b.disabled = false; break;
       }
       /* ---- pengguna ---- */
+      case 'user-new': openUserModal(null); break;
+      case 'user-edit': openUserModal(b.dataset.u); break;
       case 'user-save': {
         const tr = b.closest('tr');
         const d = { username: tr.dataset.user, nama: tr.querySelector('[data-uf=nama]').value, nip: tr.querySelector('[data-uf=nip]').value, peran: tr.querySelector('[data-uf=peran]').value, aktif: tr.querySelector('[data-uf=aktif]').checked };

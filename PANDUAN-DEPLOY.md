@@ -1,4 +1,4 @@
-# Panduan Pemasangan LAPORAN CERMAT v2.2
+# Panduan Pemasangan LAPORAN CERMAT v2.3
 
 Aplikasi terdiri dari dua bagian:
 
@@ -35,7 +35,7 @@ Pemasangan cukup **sekali**, sekitar 15 menit.
    - Folder **LAPORAN CERMAT** dan spreadsheet **Database CERMAT** sekarang ada di Google Drive. Script Property `ADMIN_PASSWORD` **otomatis terhapus**, dan yang tersimpan hanya hash-nya.
 6. Klik **Deploy** → **New deployment**:
    - Klik ⚙ di samping *Select type* → **Web app**.
-   - **Description:** `v2.2`
+   - **Description:** `v2.3`
    - **Execute as:** **Me** (akun admin)
    - **Who has access:** **Anyone** (*bukan* "Anyone with Google account")
    - Klik **Deploy**, lalu salin **Web app URL** (berakhiran `/exec`).
@@ -66,7 +66,10 @@ Pemasangan cukup **sekali**, sekitar 15 menit.
 
 **Admin** (menu: Kelola Pengguna · Data Sekolah · Lihat Laporan · Unduh Laporan):
 1. **Lingkaran nama → Profil Saya → Ganti password.** Sangat disarankan.
-2. **Kelola Pengguna:** tambahkan akun setiap fasilitator (username, nama lengkap bergelar, NIP opsional, peran, password awal), lalu sampaikan username dan password awal ke masing-masing.
+2. **Kelola Pengguna → Tambah pengguna:** buat akun setiap fasilitator (username, nama lengkap bergelar, NIP opsional, peran, password awal), lalu sampaikan username dan password awal ke masing-masing.
+   - Tombol **Edit** di setiap baris dipakai untuk mengubah username, nama, NIP, peran, status aktif, reset password, atau **hapus pengguna**.
+   - **Ganti username** otomatis memperbarui sekolah binaan, laporan, dan sesi login orang itu. Ia tidak perlu login ulang, tetapi berikutnya harus masuk dengan username baru.
+   - **Hapus pengguna** hanya bisa dilakukan kalau orang itu tidak lagi memegang sekolah. Laporan yang pernah ia isi tetap tersimpan. Kalau hanya ingin menghentikan akses sementara, pilih **Nonaktif**.
 3. **Data Sekolah → Tambah sekolah:** daftarkan setiap sekolah binaan dan pilih **Fasilitator 1 & 2**.
 4. **Lingkaran nama → Pengaturan Program:** unggah **kop/logo berjajar** dan periksa nama program, penyelenggara, serta kota.
 
@@ -87,7 +90,7 @@ Pemasangan cukup **sekali**, sekitar 15 menit.
 
 ---
 
-## C2. Upgrade dari versi sebelumnya (v2 / v2.1)
+## C2. Upgrade dari versi sebelumnya (v2 – v2.2)
 
 1. Di Apps Script, ganti seluruh isi `Code.gs` dengan file baru → **Ctrl+S**.
 2. **Deploy → Manage deployments** → ✏ → *Version*: **New version** → **Deploy**. URL tetap sama.
