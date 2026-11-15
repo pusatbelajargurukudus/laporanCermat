@@ -4,5 +4,5 @@
  * Lihat PANDUAN-DEPLOY.md langkah 4.
  * ============================================================= */
 window.CERMAT_CONFIG = {
-  API_URL: 'https://script.google.com/macros/s/AKfycbxGdQ0qO0LKQeQT53AC43NGVJh7dvTUhXgtlNzgxCavU8B-7LzgQUYGb--RdNf-qrt9TQ/exec'
+  API_URL: 'https://script.google.com/macros/s/AKfycbx32-_brZq2rc0hx5uqYGh8tdGyztp_v8BWgRlu3c_oHPaeDoJkBwxvN58CvifIcQ2bxw/exec'
 };

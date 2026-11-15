@@ -9,8 +9,8 @@
   const ML = 85, MR = 57, MT = 85, MB = 64; // kiri 3 cm, kanan 2 cm, atas 3 cm, bawah ±2,25 cm
   const CW = W - ML - MR;
   const IND = 22;                          // indentasi isi di bawah judul bab
-  const BLUE = rgb(0.192, 0.333, 0.62);
-  const BLUE_L = rgb(0.267, 0.447, 0.769);
+  const BLUE_L = rgb(0.078, 0.2, 0.42);        // biru tua logo CERMAT
+  const GOLD = rgb(0.784, 0.588, 0.165);       // emas logo CERMAT
   const INK = rgb(0.11, 0.11, 0.13);
   const GREY = rgb(0.45, 0.45, 0.48);
   const LINE = rgb(0.55, 0.58, 0.63);
@@ -276,7 +276,8 @@
       ital: await doc.embedFont(StandardFonts.HelveticaOblique)
     };
     doc.setTitle('Laporan Pendampingan ' + rep.no + ' - ' + sil.judul + ' - ' + (school ? school.nama : ''));
-    doc.setAuthor(settings.fasilitator || '');
+    const fasil = settings.fasilitator || [];
+    doc.setAuthor(fasil.map(f => f.nama).join(', '));
     doc.setCreator('LAPORAN CERMAT');
     doc.setProducer('LAPORAN CERMAT (pdf-lib)');
     doc.setLanguage('id-ID');
@@ -296,15 +297,17 @@
     };
     let cy = 135;
     cy = cover('LAPORAN', cy, 28, fonts.bold, BLUE_L);
+    pg.drawRectangle({ x: ML, y: H - cy - 6, width: 56, height: 3, color: GOLD });
+    cy += 8;
     cy = cover('PENDAMPINGAN ' + rep.no, cy + 6, 21, fonts.reg, INK);
     cover(sil.judul.toUpperCase(), cy + 4, 21, fonts.reg, INK);
     cy = 390;
     cy = cover('PROGRAM ' + (settings.program || 'CERMAT').toUpperCase(), cy, 36, fonts.reg, INK);
     if (settings.programKepanjangan) cy = cover(settings.programKepanjangan.toUpperCase(), cy + 4, 13.5, fonts.reg, INK);
     cy = cover('SEKOLAH SASARAN ' + (school ? school.nama : '').toUpperCase(), cy + 8, 19, fonts.reg, INK);
-    let fy = 680;
+    let fy = fasil.length > 1 ? 650 : 680;
     fy = cover('FASILITATOR :', fy, 16, fonts.reg, INK);
-    cover((settings.fasilitator || '').trim() || '-', fy + 4, 16, fonts.reg, INK);
+    (fasil.length ? fasil : [{ nama: '-' }]).forEach((f, i) => { fy = cover(f.nama, fy + (i ? 2 : 4), 16, fonts.reg, INK); });
     if (settings.penyelenggara) {
       const t = w.clean(settings.penyelenggara.toUpperCase() + (rep.tanggal ? ' · ' + rep.tanggal.slice(0, 4) : ''));
       pg.drawText(t, { x: ML, y: 70, size: 10, font: fonts.reg, color: GREY });
@@ -415,31 +418,48 @@
       const hadirN = R.hadirList(rep, school).length;
       w.kv([
         ['Nama Kegiatan', 'Pendampingan ke-' + rep.no + ': ' + sil.judul],
-        ['Nama Fasilitator', settings.fasilitator || '-'],
+        ['Nama Fasilitator', fasil.map(f => f.nama).join(' dan ') || '-'],
         ['Lokasi', (school ? school.nama : '') + (rep.tempat && rep.tempat !== (school && school.nama) ? ' (' + rep.tempat + ')' : '')],
         ['Waktu', (R.tanggalPanjang(rep.tanggal) || '-') + (rep.jamMulai ? ', ' + rep.jamMulai + '–' + (rep.jamSelesai || '') + ' WIB' : '')],
         ['Jumlah Peserta Pendampingan', hadirN + ' orang']
       ]);
       const rows = R.kegiatan(rep).map((k, i) => {
         const akt = k.aktivitas.filter(a => a.aktif && (a.teks || '').trim()).map(a => a.teks.trim().replace(/\s*\(.*\)$/, ''));
-        return [i + 1, k.sesi + ' – ' + (k.bagian || '') + ' (' + (k.waktu || '') + '): ' + akt.join('; '), (k.catatan || '').trim() || 'Terlaksana sesuai rencana', ''];
+        return [i + 1, k.sesi + ' – ' + (k.bagian || '') + ' (' + (k.waktu || '') + '): ' + akt.join('; '), (k.catatan || '').trim() || 'Terlaksana sesuai rencana'];
       });
-      w.table([{ t: 'No', w: 0.06, align: 'center' }, { t: 'Materi / Kegiatan', w: 0.56 }, { t: 'Catatan', w: 0.25 }, { t: 'Paraf', w: 0.13, align: 'center' }], rows, { size: 9, lh: 1.25 });
-      // blok tanda tangan
-      w.ensure(104);
-      w.y += 8;
-      const sx = ML + CW * 0.55;
-      const sw = CW * 0.45;
-      const sig = (t, font, gapAfter) => {
-        const lines = w.wrap(t, font, 10.5, sw);
-        lines.forEach(ln => { w.page.drawText(ln.words.join(' '), { x: sx, y: H - w.y - 10.5, size: 10.5, font, color: INK }); w.y += 14; });
-        w.y += gapAfter || 0;
-      };
-      sig('Penanggung Jawab Kegiatan,', fonts.reg);
-      sig(settings.pjJabatan || 'Ketua Pelaksana Program', fonts.reg, 46);
-      const nm = (settings.pjNama || '').trim() || '(..................................................)';
-      sig(nm, fonts.bold);
-      if (settings.pjNip) sig('NIP. ' + settings.pjNip, fonts.reg);
+      w.table([{ t: 'No', w: 0.06, align: 'center' }, { t: 'Sesi / Kegiatan', w: 0.64 }, { t: 'Catatan', w: 0.30 }], rows, { size: 9, lh: 1.25 });
+
+      // ----- tanda tangan: kepala sekolah & fasilitator yang hadir -----
+      const ks = settings.kepala || {};
+      const cols = [{ head: 'Mengetahui,', title: 'Kepala ' + (school ? school.nama : 'Sekolah'), nama: ks.nama || '(..................................................)', nip: ks.nip }]
+        .concat(fasil.map((f, i) => ({ head: '', title: fasil.length > 1 ? 'Fasilitator ' + (i + 1) : 'Fasilitator', nama: f.nama, nip: f.nip })));
+      w.ensure(130);
+      w.y += 10;
+      const x0 = ML + IND, tw = CW - IND;
+      const cw = tw / cols.length;
+      const sz = 10;
+      const tgl = R.tanggalPanjang(rep.tanggal);
+      if (tgl) {
+        const t = w.clean((settings.kota || 'Kudus') + ', ' + tgl.split(', ')[1]);
+        w.page.drawText(t, { x: x0 + cw, y: H - w.y - sz, size: sz, font: fonts.reg, color: INK });
+      }
+      w.y += 15;
+      const top = w.y;
+      let maxY = top;
+      cols.forEach((c, i) => {
+        const x = x0 + i * cw;
+        let y = top;
+        const line = (t, font) => {
+          w.wrap(t, font, sz, cw - 10).forEach(ln => { w.page.drawText(ln.words.join(' '), { x, y: H - y - sz, size: sz, font, color: INK }); y += sz * 1.35; });
+        };
+        if (c.head) line(c.head, fonts.reg); else y += sz * 1.35;
+        line(c.title, fonts.reg);
+        y += 48;
+        line(c.nama, fonts.bold);
+        if (c.nip) line('NIP. ' + c.nip, fonts.reg);
+        maxY = Math.max(maxY, y);
+      });
+      w.y = maxY + 6;
     }
     if ((L.jurnalScan || []).length) await w.images(await img(L.jurnalScan), { cols: 1, maxH: H - MT - MB - 40 });
 

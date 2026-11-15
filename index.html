@@ -2,34 +2,40 @@
 <html lang="id">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>LAPORAN CERMAT</title>
   <meta name="description" content="Aplikasi pelaporan 22 pendampingan Program CERMAT (Cerdas Numerasi dan Matematika Terapan).">
-  <meta name="theme-color" content="#1f4e9a">
+  <meta name="theme-color" content="#14336b">
   <meta name="robots" content="noindex">
   <link rel="manifest" href="manifest.webmanifest">
-  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="css/app.css?v=2">
+  <link rel="icon" href="icons/favicon-64.png" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="css/app.css?v=3">
 </head>
 <body>
   <header class="topbar">
     <div class="in">
-      <a class="brand" href="#/">LAPORAN CERMAT</a>
+      <a class="brand" href="#/"><img src="icons/logo-mark.png" alt="Logo CERMAT"><span><b>LAPORAN</b> <i>CERMAT</i></span></a>
       <nav class="nav" id="nav"></nav>
+      <div class="usr" id="usr"></div>
     </div>
   </header>
-  <main id="app"><p class="muted">Memuat…</p></main>
+  <main id="app"><div class="loading"><span class="spin"></span> Memuat…</div></main>
+  <nav class="tabbar" id="tabbar"></nav>
   <div id="toast"></div>
 
-  <script src="js/config.js?v=2"></script>
+  <script src="js/config.js?v=3"></script>
   <script src="vendor/pdf-lib.min.js"></script>
   <script src="vendor/jszip.min.js"></script>
-  <script src="js/silabus.js?v=2"></script>
-  <script src="js/db.js?v=2"></script>
-  <script src="js/api.js?v=2"></script>
-  <script src="js/importer.js?v=2"></script>
-  <script src="js/report.js?v=2"></script>
-  <script src="js/pdf.js?v=2"></script>
-  <script src="js/app.js?v=2"></script>
+  <script src="js/silabus.js?v=3"></script>
+  <script src="js/db.js?v=3"></script>
+  <script src="js/api.js?v=3"></script>
+  <script src="js/importer.js?v=3"></script>
+  <script src="js/report.js?v=3"></script>
+  <script src="js/pdf.js?v=3"></script>
+  <script src="js/app.js?v=3"></script>
 </body>
 </html>

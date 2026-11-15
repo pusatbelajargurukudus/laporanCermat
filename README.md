@@ -1,9 +1,11 @@
-# LAPORAN CERMAT v2
+# LAPORAN CERMAT v2.1
 
 Aplikasi web untuk menyusun **laporan 22 pendampingan Program CERMAT** (Cerdas Numerasi dan Matematika Terapan), dipakai bersama oleh semua fasilitator.
 
 - **Data bersama di Google Drive** akun admin, dengan Google Apps Script sebagai server. Gratis.
-- **Akun masing-masing dengan peran:** Admin, Fasilitator (mengedit sekolah yang dipegangnya), dan Pemantau (hanya melihat dan mengunduh).
+- **Akun masing-masing dengan peran:** Admin, Fasilitator, dan Pemantau (hanya melihat dan mengunduh).
+- **Data sekolah diisi fasilitator.** Setiap sekolah dipegang 2 fasil dengan hak setara; datanya berisi nama sekolah, nama & NIP kepala sekolah, dan data guru.
+- **Jurnal kegiatan ditandatangani** kepala sekolah dan fasilitator yang hadir.
 - **Isi laporan otomatis** dari *Silabus Pendampingan CERMAT (revisi 15-11-2026)*.
 - **Nilai pretes/postes** diimpor dari Google Form; hanya baris sekolah yang dilaporkan yang diambil.
 - **PDF** disusun di browser, lalu diarsipkan otomatis ke folder sekolah di Drive.
@@ -13,10 +15,11 @@ Aplikasi web untuk menyusun **laporan 22 pendampingan Program CERMAT** (Cerdas N
 
 ## Menu
 
-1. **Data Sekolah:** data program (sampul, jurnal, kop), sekolah binaan, fasilitator pemegang, dan peserta.
-2. **Buat Laporan:** pilih sekolah, lalu pendampingan 1–22, lalu isi 5 langkah (Pelaksanaan → Kehadiran & Nilai → Kegiatan & Capaian → Evaluasi → Lampiran), kemudian Periksa & Pratinjau.
+1. **Data Sekolah:** sekolah binaan, Fasilitator 1 & 2, kepala sekolah + NIP, dan data guru.
+2. **Buat Laporan:** pilih sekolah, lalu pendampingan 1–22, lalu isi langkah Pelaksanaan (termasuk fasil yang hadir) → Kehadiran & Nilai → Kegiatan & Capaian → Evaluasi → Lampiran, kemudian Periksa & Unduh.
 3. **Unduh Laporan:** matriks status semua sekolah, PDF per laporan, ZIP per pendampingan, dan ZIP per sekolah.
-4. **Kelola Pengguna** (admin): akun, peran, reset password, dan pemakaian Drive.
+
+Melalui lingkaran nama di kanan atas: **Profil Saya** (NIP, ganti password), **Keluar**, serta khusus admin **Kelola Pengguna** dan **Pengaturan Program** (kop/logo, identitas program).
 
 ## Format Google Form pretes/postes (Pendampingan 1–7)
 
@@ -30,7 +33,7 @@ Aturan perhitungan nilai:
 ## Struktur file
 
 ```
-index.html, css/, icons/, manifest.webmanifest, sw.js   tampilan
+index.html, css/, icons/ (logo CERMAT), manifest.webmanifest, sw.js   tampilan
 js/config.js        ← URL server Apps Script (wajib diisi)
 js/silabus.js       data 22 pendampingan
 js/api.js           komunikasi dengan server

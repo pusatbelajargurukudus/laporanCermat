@@ -1,4 +1,4 @@
-# Panduan Pemasangan LAPORAN CERMAT v2
+# Panduan Pemasangan LAPORAN CERMAT v2.1
 
 Aplikasi terdiri dari dua bagian:
 
@@ -35,7 +35,7 @@ Pemasangan cukup **sekali**, sekitar 15 menit.
    - Folder **LAPORAN CERMAT** dan spreadsheet **Database CERMAT** sekarang ada di Google Drive. Script Property `ADMIN_PASSWORD` **otomatis terhapus**, dan yang tersimpan hanya hash-nya.
 6. Klik **Deploy** → **New deployment**:
    - Klik ⚙ di samping *Select type* → **Web app**.
-   - **Description:** `v2`
+   - **Description:** `v2.1`
    - **Execute as:** **Me** (akun admin)
    - **Who has access:** **Anyone** (*bukan* "Anyone with Google account")
    - Klik **Deploy**, lalu salin **Web app URL** (berakhiran `/exec`).
@@ -54,6 +54,7 @@ Pemasangan cukup **sekali**, sekitar 15 menit.
      API_URL: 'https://script.google.com/macros/s/AKfycb..../exec'
    };
    ```
+   > URL **wajib diapit petik satu** `'…'`. Tanpa petik, file tidak terbaca dan aplikasi menampilkan pesan "Belum terhubung ke server".
 2. Buat repository baru di GitHub, mis. `laporan-cermat`.
 3. Unggah semua file dan folder dari paket ini, termasuk `.nojekyll`. Folder `apps-script/` boleh ikut diunggah karena tidak berisi password.
 4. **Settings → Pages → Build and deployment**: Source **Deploy from a branch**, Branch **main / (root)** → **Save**.
@@ -61,23 +62,36 @@ Pemasangan cukup **sekali**, sekitar 15 menit.
 
 ---
 
-## C. Penggunaan pertama (oleh admin)
+## C. Penggunaan pertama
 
-1. Masuk dengan username dan password admin.
-2. **Akun Saya → Ganti password.** Sangat disarankan, karena akun admin bisa mengubah dan menghapus semua laporan.
-3. **Kelola Pengguna:** tambahkan akun setiap fasilitator (username, nama lengkap bergelar, peran, password awal). Sampaikan username dan password awal ke masing-masing.
-4. **Data Sekolah:**
-   - Buka **Data program**: isi penanggung jawab jurnal dan unggah gambar **kop**.
-   - **Tambah sekolah:** tempel 9 nama sekolah sekaligus.
-   - Di setiap sekolah, pilih **Fasilitator pemegang**. Namanya otomatis tercetak di sampul dan jurnal laporan.
+**Admin** (klik lingkaran nama di pojok kanan atas):
+1. **Profil Saya → Ganti password.** Sangat disarankan, karena akun admin bisa mengubah dan menghapus semua laporan.
+2. **Kelola Pengguna:** tambahkan akun setiap fasilitator (username, nama lengkap bergelar, NIP opsional, peran, password awal), lalu sampaikan username dan password awal ke masing-masing.
+3. **Pengaturan Program:** unggah gambar **kop/logo berjajar** dan periksa nama program, penyelenggara, serta kota.
+
+**Fasilitator:**
+1. **Data Sekolah → Tambah sekolah:** isi nama sekolah dan pilih rekan **Fasilitator 2**. Cukup salah satu fasil yang mendaftarkan; sekolahnya otomatis muncul juga di akun rekannya.
+2. Lengkapi **nama & NIP kepala sekolah** dan **data guru** (nama, jabatan, kelas).
+3. **Profil Saya:** isi NIP bila ingin dicetak di tanda tangan jurnal.
 
 ### Peran
 
-| Peran | Lihat & unduh | Edit laporan | Sekolah & peserta | Kelola pengguna |
+| Peran | Lihat & unduh | Data sekolah & guru | Laporan | Pengguna & pengaturan program |
 |---|---|---|---|---|
-| Admin | semua | semua | semua | ✓ |
-| Fasilitator | semua | sekolah yang dipegang | peserta sekolah yang dipegang | – |
-| Pemantau | semua | – | lihat | – |
+| Admin | semua | semua sekolah | semua | ✓ |
+| Fasilitator | semua | sekolah binaannya (2 fasil per sekolah, hak setara) | sekolah binaannya | – |
+| Pemantau | semua | lihat | lihat | – |
+
+---
+
+## C2. Upgrade dari v2 ke v2.1 (kalau sebelumnya sudah memasang v2)
+
+1. Di Apps Script, ganti seluruh isi `Code.gs` dengan file baru → **Ctrl+S**.
+2. **Deploy → Manage deployments** → ✏ → *Version*: **New version** → **Deploy**. URL tetap sama.
+3. Di GitHub, unggah semua file baru **kecuali `js/config.js`**. Biarkan `config.js` lama yang sudah berisi URL Anda.
+4. Buka aplikasi dan tekan **Ctrl+Shift+R** sekali.
+
+Kolom baru di Sheets (`ksNama`, `ksNip`, `nip`) ditambahkan otomatis saat server pertama kali dipanggil, dan data lama tidak berubah. Setelah upgrade, isi kepala sekolah di setiap sekolah, karena namanya sekarang wajib untuk tanda tangan jurnal.
 
 ---
 
@@ -89,7 +103,7 @@ Semua data ada di Google Drive akun admin:
 LAPORAN CERMAT/
   Database CERMAT        ← Google Sheets
      Pengguna  (password tersimpan sebagai hash, tidak bisa dibaca)
-     Sekolah · Peserta · Program
+     Sekolah (nama, fasilitator 1 & 2, kepala sekolah + NIP) · Peserta (guru) · Program
      Rekap     (status semua laporan: tanggal, rata-rata pre/post, siapa mengubah)
      Berkas · Sesi · Log (riwayat aktivitas)
   kop

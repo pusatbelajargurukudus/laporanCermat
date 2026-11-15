@@ -1,9 +1,10 @@
-/* LAPORAN CERMAT v2 — antarmuka (multi-pengguna, data di Google Drive lewat Apps Script). */
+/* LAPORAN CERMAT v2.1 — antarmuka (multi-pengguna, data di Google Drive lewat Apps Script). */
 (function () {
   const R = window.Report, I = window.Importer;
   const app = document.getElementById('app');
   const esc = s => String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const JABATAN = ['', 'Kepala Sekolah', 'Guru Kelas', 'Guru Mapel', 'Tenaga Kependidikan'];
+  const JABATAN_GURU = ['Guru Kelas', 'Guru Mapel', 'Tenaga Kependidikan', 'Kepala Sekolah'];
   const KELAS = ['', '1', '2', '3', '4', '5', '6'];
   const PERAN = { admin: 'Admin', fasilitator: 'Fasilitator', pemantau: 'Pemantau' };
   const eqU = (a, b) => String(a || '').toLowerCase() === String(b || '').toLowerCase();
@@ -12,9 +13,46 @@
     user: null, program: {}, sekolah: [], pengguna: [], rekap: new Map(),
     local: new Map(),            // key -> { status, dirty } dari salinan lokal
     pesertaDirty: new Set(), delQueue: [],
-    cur: null, step: 1, imp: null, showAll: false, openPeserta: null,
+    cur: null, step: 1, imp: null, showAll: false, open: new Set(), adding: false,
     imgCache: new Map(), kopData: null, lastRekap: 0
   };
+
+  /* ---------- Ikon (garis, tanpa memuat dari internet) ---------- */
+  const ICONS = {
+    school: '<path d="M3 21h18"/><path d="M5 21V10l7-5 7 5v11"/><path d="M10 21v-5h4v5"/><path d="M12 10h.01"/>',
+    edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+    file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/>',
+    download: '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>',
+    users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8"/><path d="M18 14.6a6.5 6.5 0 0 1 3.5 5.4"/>',
+    settings: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
+    user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+    logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>',
+    lock: '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+    check: '<path d="M20 6 9 17l-5-5"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    upload: '<path d="M12 21V9"/><path d="m7 14 5-5 5 5"/><path d="M5 3h14"/>',
+    image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/>',
+    chevron: '<path d="m6 9 6 6 6-6"/>',
+    alert: '<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>',
+    info: '<circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/>',
+    eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+    trash: '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>',
+    arrowR: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+    arrowL: '<path d="M19 12H5M11 18l-6-6 6-6"/>',
+    zip: '<rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9"/><path d="M10 13h4"/>',
+    x: '<path d="M18 6 6 18M6 6l12 12"/>',
+    calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/>',
+    cloud: '<path d="M7 18a5 5 0 1 1 .9-9.9A6 6 0 0 1 19 10a4 4 0 0 1-1 8z"/>'
+  };
+  const ic = (n, cls) => `<svg class="ic ${cls || ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[n] || ''}</svg>`;
+  function ring(done, total, size) {
+    size = size || 54; const r = (size - 8) / 2, c = 2 * Math.PI * r, p = total ? done / total : 0;
+    return `<div class="ring" style="width:${size}px;height:${size}px"><svg width="${size}" height="${size}"><circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="#edf0f5" stroke-width="6"/>` +
+      `<circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="${p >= 1 ? '#1d8a57' : '#c8962a'}" stroke-width="6" stroke-linecap="round" stroke-dasharray="${(c * p).toFixed(1)} ${c.toFixed(1)}"/></svg><span class="t">${done}/${total}</span></div>`;
+  }
+  const initials = n => String(n || '?').split(',')[0].trim().split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase() || '?';
+  const emptyState = (icon, title, text, action) => `<div class="card empty">${ic(icon)}<b>${title}</b><div class="small">${text || ''}</div>${action ? '<div style="margin-top:14px">' + action + '</div>' : ''}</div>`;
+  const pageHead = (title, sub, actions, crumb) => `${crumb || ''}<div class="ph"><div><h1>${title}</h1>${sub ? '<p>' + sub + '</p>' : ''}</div>${actions ? '<div class="act">' + actions + '</div>' : ''}</div>`;
 
   /* =========================================================
    * UTIL
@@ -30,9 +68,13 @@
   function opts(list, val, labels) { return list.map((v, i) => `<option value="${esc(v)}"${String(v) === String(val) ? ' selected' : ''}>${esc(labels ? labels[i] : (v || '—'))}</option>`).join(''); }
   const school = id => S.sekolah.find(s => s.id === id);
   const userBy = u => S.pengguna.find(x => eqU(x.username, u));
-  const fasilNama = s => { const u = s && userBy(s.fasil); return u ? u.nama : ''; };
+  const fasilOf = s => (s && Array.isArray(s.fasil) ? s.fasil : (s && s.fasil ? String(s.fasil).split('|').filter(Boolean) : []));
+  const namaUser = u => { const x = userBy(u); return x ? x.nama : u; };
+  const fasilNama = s => fasilOf(s).map(namaUser).join(' & ');
+  const inFasil = (s, u) => fasilOf(s).some(x => eqU(x, u));
   const isAdmin = () => S.user && S.user.peran === 'admin';
-  const canEdit = s => !!(S.user && s && (S.user.peran === 'admin' || (S.user.peran === 'fasilitator' && eqU(s.fasil, S.user.username))));
+  const canEdit = s => !!(S.user && s && (S.user.peran === 'admin' || (S.user.peran === 'fasilitator' && inFasil(s, S.user.username))));
+  const fasilUsers = () => S.pengguna.filter(u => u.aktif && u.peran !== 'pemantau');
   const clone = o => JSON.parse(JSON.stringify(o));
   const mimeOf = d => (d.match(/^data:([^;]+);/) || [])[1] || 'image/jpeg';
   function saveBlob(blob, name) {
@@ -95,12 +137,27 @@
     kvSet('boot', { user: S.user, program: S.program, sekolah: S.sekolah.map(s => { const o = Object.assign({}, s); delete o.peserta; return o; }), peserta, pengguna: S.pengguna, rekap: [...S.rekap.values()] });
   }, 500);
 
+  /* Kepala sekolah otomatis tercatat sebagai peserta (untuk daftar hadir). */
+  function syncKs(s) {
+    s.peserta = s.peserta || [];
+    const id = 'ks_' + s.id;
+    const i = s.peserta.findIndex(p => p.id === id);
+    const nm = String(s.ksNama || '').trim();
+    if (nm) {
+      if (i < 0) { s.peserta.unshift({ id, nama: nm, jabatan: 'Kepala Sekolah', kelas: '' }); return true; }
+      if (s.peserta[i].nama !== nm || s.peserta[i].jabatan !== 'Kepala Sekolah') { s.peserta[i].nama = nm; s.peserta[i].jabatan = 'Kepala Sekolah'; s.peserta[i].kelas = ''; return true; }
+    } else if (i >= 0) { s.peserta.splice(i, 1); return true; }
+    return false;
+  }
+
   function applyBoot(b) {
     const prev = new Map(S.sekolah.map(s => [s.id, s.peserta]));
     S.user = b.user; S.program = b.program || {}; S.pengguna = b.pengguna || [];
     S.sekolah = (b.sekolah || []).map(s => Object.assign({}, s, {
+      fasil: fasilOf(s),
       peserta: S.pesertaDirty.has(s.id) && prev.get(s.id) ? prev.get(s.id) : (b.peserta || []).filter(p => p.sekolahId === s.id).map(p => ({ id: p.id, nama: p.nama, jabatan: p.jabatan, kelas: p.kelas }))
     }));
+    S.sekolah.forEach(s => { if (syncKs(s) && canEdit(s)) S.pesertaDirty.add(s.id); });
     S.rekap = new Map((b.rekap || []).map(r => [r.key, r]));
   }
 
@@ -118,6 +175,8 @@
     const r = S.rekap.get(key);
     return r ? (r.status === 'lengkap' ? 'lengkap' : 'draf') : 'kosong';
   }
+  const doneOf = sid => window.SILABUS.filter(p => statusOf(sid, p.no) === 'lengkap').length;
+  const hasReports = sid => window.SILABUS.some(p => statusOf(sid, p.no) !== 'kosong');
 
   async function refreshRekap(force) {
     if (!force && Date.now() - S.lastRekap < 20000) return false;
@@ -157,7 +216,10 @@
     if (!S.program.kopId) return;
     try { const r = await getImageRec(S.program.kopId); S.kopData = r ? r.data : null; } catch (e) { /* tanpa kop */ }
   }
-  function pdfSettings(s) { return Object.assign({}, S.program, { fasilitator: fasilNama(s), kop: S.kopData }); }
+  function pdfSettings(s, rep) {
+    const fasil = R.fasilHadir(rep, s).map(u => { const x = userBy(u); return { nama: x ? x.nama : u, nip: x ? x.nip : '' }; });
+    return Object.assign({}, S.program, { fasilitator: fasil, kepala: { nama: s.ksNama, nip: s.ksNip }, kop: S.kopData });
+  }
 
   /* =========================================================
    * SINKRONISASI
@@ -281,38 +343,62 @@
 
   async function setSync(state, msg) {
     if (state !== 'wait') { Sync.state = state; Sync.msg = msg || ''; }
-    const el = document.getElementById('syncind'); if (!el) return;
+    const el = document.getElementById('syncind');
+    const dots = document.querySelectorAll('.sd');
+    if (!el && !dots.length) return;
     const n = await Sync.count();
     let t, c;
-    if (state === 'busy') { t = '⟳ Menyimpan ke Drive…'; c = 'busy'; }
-    else if (state === 'wait' || (state === 'ok' && n)) { t = n ? '● ' + n + ' perubahan menunggu' : '● Akan disimpan…'; c = 'wait'; }
-    else if (state === 'offline') { t = '⚠ Offline' + (n ? ' · ' + n + ' menunggu' : ''); c = 'bad'; }
-    else if (state === 'error') { t = '⚠ Gagal sinkron'; c = 'bad'; }
-    else { t = '✓ Tersinkron'; c = 'ok'; }
-    el.textContent = t; el.className = 'sync ' + c; el.title = msg || '';
+    if (state === 'busy') { t = 'Menyimpan ke Google Drive…'; c = 'busy'; }
+    else if (state === 'wait' || (state === 'ok' && n)) { t = n ? n + ' perubahan menunggu dikirim' : 'Akan disimpan…'; c = 'wait'; }
+    else if (state === 'offline') { t = 'Offline' + (n ? ' · ' + n + ' perubahan menunggu' : ''); c = 'bad'; }
+    else if (state === 'error') { t = 'Gagal sinkron' + (msg ? ': ' + msg : ''); c = 'bad'; }
+    else { t = 'Tersinkron dengan Google Drive'; c = 'ok'; }
+    if (el) el.textContent = t;
+    dots.forEach(d => { d.className = 'sd ' + c; });
+    const av = document.getElementById('avbtn'); if (av) av.title = t;
   }
 
   /* =========================================================
    * LOGIN / BOOT
    * ========================================================= */
   function renderConfigMissing() {
-    app.innerHTML = `<div class="card login"><h2>Aplikasi belum terhubung ke server</h2>
-      <p>Isi <code>API_URL</code> di file <code>js/config.js</code> dengan URL Web App Apps Script (berakhiran <code>/exec</code>), lalu unggah ulang ke GitHub.</p>
-      <p class="small muted">Panduan lengkap ada di <b>PANDUAN-DEPLOY.md</b>.</p></div>`;
+    document.body.classList.add('auth');
+    const cfg = window.CERMAT_CONFIG;
+    const why = !cfg
+      ? '<b>File <code>js/config.js</code> tidak terbaca karena ada salah tulis.</b> Paling sering: URL tidak diapit petik satu. Contoh yang benar:<br><code>API_URL: \'https://script.google.com/macros/s/AKfy…/exec\'</code>'
+      : !/^https?:\/\//.test(String(cfg.API_URL || '').trim())
+        ? `<b>API_URL belum diisi dengan benar.</b> Terbaca: <code>${esc(cfg.API_URL || '(kosong)')}</code>. Harus diawali <code>https://</code> dan berakhiran <code>/exec</code>.`
+        : '';
+    app.innerHTML = `<div class="auth-wrap"><div class="auth-side"><div><div class="logo-card"><img src="icons/logo-cermat.png" alt="Logo CERMAT"></div></div></div>
+      <div class="auth-main"><div class="auth-form"><img class="mlogo" src="icons/logo-cermat.png" alt="Logo CERMAT">
+      <h1>Belum terhubung ke server</h1><div class="banner warn small">${ic('alert')}<div>${why}</div></div>
+      <p class="small muted">Perbaiki <code>js/config.js</code> di GitHub, tunggu build selesai, lalu muat ulang halaman ini. Panduan: <b>PANDUAN-DEPLOY.md</b>.</p></div></div></div>`;
   }
 
   function renderLogin(msg) {
+    document.body.classList.add('auth');
     setNav();
-    app.innerHTML = `<div class="card login"><div class="login-logo">📊</div><h2>Masuk LAPORAN CERMAT</h2>
-      <p class="muted small">Gunakan username dan password yang diberikan admin.</p>
-      <form id="loginForm"><label class="f">Username</label><input type="text" id="lu" autocomplete="username" required>
-      <label class="f" style="margin-top:10px">Password</label><input type="password" id="lp" autocomplete="current-password" required>
-      ${msg ? `<div class="banner bad small" style="margin-top:10px">${esc(msg)}</div>` : ''}
-      <button class="btn pri" style="width:100%;margin-top:14px" id="lb">Masuk</button></form></div>`;
+    app.innerHTML = `<div class="auth-wrap">
+      <div class="auth-side">
+        <div><div class="logo-card"><img src="icons/logo-cermat.png" alt="Logo CERMAT"></div>
+          <h2>Pelaporan Pendampingan CERMAT</h2>
+          <p>Susun laporan 22 pendampingan Cerdas Numerasi dan Matematika Terapan secara rapi, cepat, dan seragam — langsung jadi PDF.</p>
+          <p class="motto">“Bernalar Tepat, Melangkah Hebat.”</p></div>
+        <div class="foot">${esc(S.program.penyelenggara || 'Pusat Belajar Guru Kudus')}</div>
+      </div>
+      <div class="auth-main"><form class="auth-form" id="loginForm">
+        <img class="mlogo" src="icons/logo-cermat.png" alt="Logo CERMAT">
+        <h1>Selamat datang</h1><p class="muted" style="margin:0 0 22px">Masuk dengan akun yang diberikan admin.</p>
+        <label class="f" for="lu">Username</label><div class="field-ic">${ic('user')}<input type="text" id="lu" autocomplete="username" required></div>
+        <label class="f" for="lp" style="margin-top:14px">Password</label><div class="field-ic">${ic('lock')}<input type="password" id="lp" autocomplete="current-password" required></div>
+        ${msg ? `<div class="banner bad small" style="margin:14px 0 0">${ic('alert')}<div>${esc(msg)}</div></div>` : ''}
+        <button class="btn pri block" style="margin-top:20px;height:46px" id="lb">Masuk</button>
+        <p class="tiny muted" style="margin-top:18px;text-align:center">Lupa password? Hubungi admin program.</p>
+      </form></div></div>`;
     document.getElementById('lu').focus();
     document.getElementById('loginForm').addEventListener('submit', async e => {
       e.preventDefault();
-      const b = document.getElementById('lb'); b.disabled = true; b.textContent = 'Memeriksa…';
+      const b = document.getElementById('lb'); b.disabled = true; b.innerHTML = '<span class="spin"></span> Memeriksa…';
       try {
         const r = await API.call('login', { username: document.getElementById('lu').value, password: document.getElementById('lp').value });
         API.token = r.token; localStorage.setItem('cermat_token', r.token);
@@ -328,7 +414,8 @@
     const prevBoot = await DB.get('kv', 'boot');
     if (fresh && prevBoot && S.user && !eqU(prevBoot.user.username, S.user.username)) { await DB.wipe(); S.pesertaDirty = new Set(); S.delQueue = []; }
     const cached = fresh ? null : prevBoot;
-    if (cached) { applyBoot(cached); await loadLocalStatus(); setNav(); }
+    if (cached) { applyBoot(cached); await loadLocalStatus(); document.body.classList.remove('auth'); setNav(); }
+    else app.innerHTML = '<div class="loading"><span class="spin"></span> Memuat data…</div>';
     try {
       const b = await API.call('bootstrap');
       if (cached && !eqU(cached.user.username, b.user.username)) { await DB.wipe(); S.pesertaDirty = new Set(); S.delQueue = []; }
@@ -337,11 +424,12 @@
       cacheBoot();
     } catch (e) {
       if (e.code === 'AUTH') return;
-      if (!cached) { app.innerHTML = `<div class="card login"><h2>Tidak bisa terhubung</h2><p>${esc(e.message)}</p><button class="btn pri" onclick="location.reload()">Coba lagi</button></div>`; return; }
+      if (!cached) { app.innerHTML = `<div class="card empty" style="margin-top:40px">${ic('cloud')}<b>Tidak bisa terhubung</b><div class="small">${esc(e.message)}</div><div style="margin-top:14px"><button class="btn pri" onclick="location.reload()">Coba lagi</button></div></div>`; return; }
       toast('Offline — menampilkan data tersimpan di perangkat ini.', true, 5000);
       setSync('offline');
     }
     await loadLocalStatus();
+    document.body.classList.remove('auth');
     setNav();
     if (!location.hash || location.hash === '#/' || location.hash === '#/login') location.hash = S.user.peran === 'pemantau' ? '#/unduh' : '#/buat';
     route();
@@ -367,26 +455,51 @@
   /* =========================================================
    * NAVIGASI
    * ========================================================= */
+  function navItems() {
+    const u = S.user; if (!u) return [];
+    const items = [['sekolah', 'Data Sekolah', 'school']];
+    if (u.peran !== 'pemantau') items.push(['buat', 'Buat Laporan', 'edit']);
+    items.push(['unduh', 'Unduh Laporan', 'download']);
+    return items;
+  }
   function setNav() {
-    const nav = document.getElementById('nav');
+    const nav = document.getElementById('nav'), usr = document.getElementById('usr'), tab = document.getElementById('tabbar');
     const u = S.user;
-    if (!u) { nav.innerHTML = ''; return; }
-    const items = [['sekolah', 'Data Sekolah', 'Sekolah']];
-    if (u.peran !== 'pemantau') items.push(['buat', 'Buat Laporan', 'Buat']);
-    items.push(['unduh', 'Unduh Laporan', 'Unduh']);
-    if (u.peran === 'admin') items.push(['pengguna', 'Kelola Pengguna', 'Pengguna']);
-    nav.innerHTML = items.map(([k, l, s]) => `<a href="#/${k}" data-nav="${k}"><span class="lg">${l}</span><span class="sm">${s}</span></a>`).join('') +
-      `<span class="sync ok" id="syncind">✓ Tersinkron</span><a href="#/akun" data-nav="akun" class="me" title="Akun saya">${esc(u.nama.split(',')[0])} · ${PERAN[u.peran]}</a>`;
+    if (!u) { nav.innerHTML = ''; usr.innerHTML = ''; tab.innerHTML = ''; return; }
+    const items = navItems();
+    nav.innerHTML = items.map(([k, l, i]) => `<a href="#/${k}" data-nav="${k}">${ic(i)}<span>${l}</span></a>`).join('');
+    tab.innerHTML = items.map(([k, l, i]) => `<a href="#/${k}" data-nav="${k}">${ic(i, 'lg')}<span>${l.replace(' Laporan', '')}</span></a>`).join('');
+    usr.innerHTML = `<button class="avatar" id="avbtn" data-menu="1" aria-haspopup="true">
+        <span class="nm"><b>${esc(u.nama.split(',')[0])}</b><span>${PERAN[u.peran]}</span></span>
+        <span class="bubble">${esc(initials(u.nama))}<span class="sd ok"></span></span></button>
+      <div class="menu" id="umenu">
+        <div class="mhd"><b>${esc(u.nama)}</b><span>${esc(u.username)} · ${PERAN[u.peran]}</span></div>
+        <div class="sync"><span class="sd ok"></span><span id="syncind">Tersinkron dengan Google Drive</span></div>
+        <div class="sep"></div>
+        ${u.peran === 'admin' ? `<a href="#/pengguna">${ic('users')}Kelola Pengguna</a><a href="#/program">${ic('settings')}Pengaturan Program</a><div class="sep"></div>` : ''}
+        <a href="#/akun">${ic('user')}Profil Saya</a>
+        <a href="#/akun#pw">${ic('lock')}Ganti Password</a>
+        <div class="sep"></div>
+        <button data-act="logout">${ic('logout')}Keluar</button>
+      </div>`;
     setSync(Sync.state);
   }
+  document.addEventListener('click', e => {
+    const m = document.getElementById('umenu'); if (!m) return;
+    if (e.target.closest('[data-menu]')) { m.classList.toggle('open'); return; }
+    if (e.target.closest('#umenu [data-act="logout"]')) { m.classList.remove('open'); logout(); return; }
+    if (!e.target.closest('#umenu') || e.target.closest('#umenu a')) m.classList.remove('open');
+  });
 
   async function route() {
     if (!API.configured()) return renderConfigMissing();
     if (!S.user) return renderLogin();
+    document.body.classList.remove('auth');
     const h = location.hash.replace(/^#\/?/, '');
-    const parts = h.split('/');
+    const parts = h.split(/[/#]/);
     const top = parts[0] === 'laporan' ? 'buat' : parts[0];
     document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('on', a.dataset.nav === top));
+    document.body.classList.toggle('editing', parts[0] === 'laporan');
     window.scrollTo(0, 0);
     if (parts[0] !== 'laporan') { await flushCur(); S.cur = null; }
     switch (parts[0]) {
@@ -395,84 +508,112 @@
       case 'laporan': return openReport(parts[1], parseInt(parts[2], 10), parseInt(parts[3] || '1', 10));
       case 'unduh': return renderUnduh();
       case 'pengguna': return isAdmin() ? renderPengguna() : (location.hash = '#/buat');
+      case 'program': return isAdmin() ? renderProgram() : (location.hash = '#/buat');
       case 'akun': return renderAkun();
       default: location.hash = S.user.peran === 'pemantau' ? '#/unduh' : '#/buat';
     }
   }
 
   /* =========================================================
-   * MENU 1 — DATA SEKOLAH BINAAN
+   * MENU 1 — DATA SEKOLAH
    * ========================================================= */
+  function fasilChips(s) {
+    const f = fasilOf(s);
+    if (!f.length) return '<span class="muted">Fasilitator belum ditentukan</span>';
+    return f.map(u => `<span class="fasil-chip"><i>${esc(initials(namaUser(u)))}</i>${esc(namaUser(u).split(',')[0])}</span>`).join(' ');
+  }
+
   function renderSekolah() {
-    const adm = isAdmin();
-    const P = S.program;
-    const f = (k, label, ph) => `<div><label class="f">${label}</label><input type="text" data-prog="${k}" value="${esc(P[k])}" placeholder="${esc(ph || '')}"${adm ? '' : ' disabled'}></div>`;
-    const fasilOpts = [''].concat(S.pengguna.filter(u => u.aktif && u.peran !== 'pemantau').map(u => u.username));
-    const fasilLbl = ['— belum ditentukan —'].concat(S.pengguna.filter(u => u.aktif && u.peran !== 'pemantau').map(u => u.nama + ' (' + u.username + ')'));
-    app.innerHTML = `
-      <h1 class="pg">Data Sekolah Binaan</h1>
-      <details class="card adv0"${adm && !S.sekolah.length ? ' open' : ''}><summary><b>Data program</b> <span class="small muted">— sampul, jurnal, kop</span></summary>
-        <div class="grid2" style="margin-top:10px">
-          ${f('program', 'Nama program (sampul)', 'CERMAT')}
-          ${f('programKepanjangan', 'Kepanjangan program')}
-          ${f('penyelenggara', 'Penyelenggara')}
-          ${f('pjJabatan', 'Jabatan penanggung jawab (jurnal)')}
-          ${f('pjNama', 'Nama penanggung jawab (jurnal)')}
-          ${f('pjNip', 'NIP penanggung jawab (opsional)')}
-        </div>
-        <label class="f" style="margin-top:12px">Kop / logo di atas setiap halaman PDF</label>
-        <div id="kopPrev" class="small muted">${P.kopId ? 'Memuat kop…' : 'Belum ada kop.'}</div>
-        ${adm ? `<div class="row" style="margin-top:8px"><label class="btn upl">Pilih gambar kop<input type="file" accept="image/*" data-act="kop"></label>${P.kopId ? '<button class="btn danger" data-act="kop-del">Hapus kop</button>' : ''}</div>` : ''}
-        ${adm ? '' : '<p class="small muted">Hanya admin yang dapat mengubah data program.</p>'}
-      </details>
-      ${S.sekolah.length ? '' : `<div class="banner info">Belum ada sekolah binaan.${adm ? ' Tambahkan di bagian bawah.' : ' Hubungi admin untuk menambahkan.'}</div>`}
-      ${S.sekolah.map(s => sekolahCard(s, adm, fasilOpts, fasilLbl)).join('')}
-      ${adm ? `<div class="card"><h3>Tambah sekolah</h3><label class="f">Satu nama per baris (bisa sekaligus 9)</label>
-        <textarea id="newSchools" placeholder="SD 3 Terban&#10;SD 1 Jati Kulon&#10;…" style="min-height:70px"></textarea>
-        <button class="btn pri" data-act="add-schools" style="margin-top:6px">Tambah sekolah</button></div>` : ''}`;
-    if (P.kopId) ensureKop().then(() => { const el = document.getElementById('kopPrev'); if (el) el.innerHTML = S.kopData ? `<img class="kop-prev" src="${S.kopData}" alt="Kop">` : 'Kop tidak bisa dimuat.'; });
-  }
-
-  function sekolahCard(s, adm, fasilOpts, fasilLbl) {
-    const open = S.openPeserta === s.id;
-    const ed = canEdit(s);
-    const ps = R.sortPeserta(s.peserta || []);
-    const lengkap = window.SILABUS.filter(p => statusOf(s.id, p.no) === 'lengkap').length;
-    const mine = S.user.peran === 'fasilitator' && eqU(s.fasil, S.user.username);
-    return `<div class="card sk-card${mine ? ' mine' : ''}">
-      <div class="row"><h3 style="margin:0">${esc(s.nama)}</h3>${mine ? '<span class="pill lengkap">Sekolah Anda</span>' : ''}<span class="spacer"></span>
-        <span class="small muted">${lengkap}/22 lengkap · ${ps.length} peserta</span></div>
-      ${adm ? `<div class="grid2" style="margin-top:10px">
-        <div><label class="f">Nama sekolah</label><input type="text" data-sk="nama" data-sid="${s.id}" value="${esc(s.nama)}"></div>
-        <div><label class="f">Fasilitator pemegang</label><select data-sk="fasil" data-sid="${s.id}">${opts(fasilOpts, s.fasil, fasilLbl)}</select></div>
-        <div><label class="f">Nama lain di Google Form (pisahkan koma)</label><input type="text" data-sk="alias" data-sid="${s.id}" value="${esc((s.alias || []).join(', '))}" placeholder="mis. SDN 3 Terban"></div></div>`
-        : `<p class="small" style="margin:6px 0 0">Fasilitator: <b>${esc(fasilNama(s) || '— belum ditentukan —')}</b></p>`}
-      <div class="row" style="margin-top:10px"><button class="btn sm" data-act="toggle-peserta" data-sid="${s.id}">${open ? 'Tutup' : (ed ? 'Kelola' : 'Lihat')} peserta (${ps.length})</button>
-      ${S.user.peran !== 'pemantau' ? `<a class="btn sm" href="#/buat/${s.id}">Laporan →</a>` : ''}
-      <span class="spacer"></span>${adm ? `<button class="btn sm danger" data-act="del-school" data-sid="${s.id}">Hapus sekolah</button>` : ''}</div>
-      ${open ? `<div style="margin-top:10px">
-        ${ed ? '<p class="small muted">Daftar juga terbentuk otomatis saat mengimpor nilai pretes/postes. Jabatan & kelas dipakai menyaring peserta di pendampingan per kelompok kelas.</p>' : ''}
-        ${ps.length ? `<div class="peserta-list">${ps.map(p => pesertaRow(s, p, false, null, null, ed)).join('')}</div>` : '<p class="small muted">Belum ada peserta.</p>'}
-        ${ed ? `<label class="f" style="margin-top:10px">Tempel daftar peserta (satu per baris: <i>Nama, Jabatan/Kelas</i>)</label>
-        <textarea data-paste="${s.id}" placeholder="Siti Aminah, Kepala Sekolah&#10;Budi Santoso, Guru Kelas 3&#10;Rina, Guru PAI" style="min-height:70px"></textarea>
-        <button class="btn sm pri" data-act="paste-peserta" data-sid="${s.id}" style="margin-top:6px">Tambahkan ke daftar</button>` : ''}</div>` : ''}
-    </div>`;
-  }
-
-  function pesertaRow(s, p, withCheck, hadirSet, rep, ed) {
-    let extra = '';
-    if (rep && R.hasTes(rep.no) && rep.tes) {
-      const sk = R.skorPeserta(rep, p.nama);
-      extra = `<small>Pretes ${sk.pre === null ? '–' : R.fmt(sk.pre)} · Postes ${sk.post === null ? '–' : R.fmt(sk.post)}</small>`;
+    const u = S.user, adm = isAdmin();
+    const mine = S.sekolah.filter(s => canEdit(s));
+    const other = S.sekolah.filter(s => !canEdit(s));
+    const canAdd = u.peran !== 'pemantau';
+    let h = pageHead('Data Sekolah', adm ? 'Semua sekolah binaan program, fasilitator pemegang, kepala sekolah, dan data guru.' :
+      u.peran === 'fasilitator' ? 'Isi data sekolah binaan Anda: kepala sekolah dan daftar guru. Data ini dipakai otomatis di laporan.' : 'Daftar sekolah binaan program.',
+    canAdd ? `<button class="btn pri" data-act="sk-new">${ic('plus')}Tambah sekolah</button>` : '');
+    if (S.adding) h += addSchoolForm();
+    if (canAdd) {
+      if (!adm) h += `<div class="sec"><h2>Sekolah binaan saya</h2></div>`;
+      h += mine.length ? mine.map(s => sekolahCard(s)).join('') :
+        emptyState('school', 'Belum ada sekolah binaan', 'Tambahkan sekolah yang Anda dampingi. Jika rekan fasilitator sudah mendaftarkannya, minta ia memilih Anda sebagai Fasilitator 2.',
+          S.adding ? '' : `<button class="btn pri" data-act="sk-new">${ic('plus')}Tambah sekolah pertama</button>`);
     }
-    const dis = ed ? '' : ' disabled';
-    return `<div class="pr">
-      ${withCheck ? `<input type="checkbox" data-act="hadir" data-id="${p.id}"${hadirSet.has(p.id) ? ' checked' : ''}${dis}>` : '<span></span>'}
-      <div class="nm">${esc(p.nama)}${extra}</div>
-      <select class="pj" data-pj="${s.id}|${p.id}|jabatan"${dis}>${opts(JABATAN, p.jabatan, ['— jabatan —'].concat(JABATAN.slice(1)))}</select>
-      <select class="pk" data-pj="${s.id}|${p.id}|kelas"${p.jabatan === 'Guru Kelas' && ed ? '' : ' disabled'}>${opts(KELAS, p.kelas, ['kelas', '1', '2', '3', '4', '5', '6'])}</select>
-      ${withCheck || !ed ? '<span></span>' : `<button class="btn sm danger" data-act="del-peserta" data-sid="${s.id}" data-id="${p.id}" title="Hapus">×</button>`}
-    </div>`;
+    if (other.length) {
+      h += `<div class="sec"><h2>${canAdd ? 'Sekolah fasilitator lain' : 'Sekolah binaan'}</h2></div>
+        <div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table class="tb"><thead><tr><th>Sekolah</th><th>Kepala sekolah</th><th>Fasilitator</th><th>Guru</th><th>Laporan</th></tr></thead><tbody>
+        ${other.map(s => `<tr><td><b>${esc(s.nama)}</b></td><td>${esc(s.ksNama || '-')}</td><td>${esc(fasilNama(s) || '-')}</td>
+          <td>${(s.peserta || []).filter(p => p.id !== 'ks_' + s.id).length}</td><td><span class="pill ${doneOf(s.id) === 22 ? 'lengkap' : doneOf(s.id) ? 'draf' : 'kosong'}">${doneOf(s.id)}/22</span></td></tr>`).join('')}
+        </tbody></table></div></div>`;
+    }
+    app.innerHTML = h;
+    const nm = document.getElementById('ns-nama'); if (nm) nm.focus();
+  }
+
+  function addSchoolForm() {
+    const adm = isAdmin();
+    const others = fasilUsers().filter(u => !eqU(u.username, S.user.username));
+    const lbl = u => u.nama + ' (' + u.username + ')';
+    return `<div class="card" style="border-color:var(--navy-line)"><div class="card-h"><h3>Tambah sekolah binaan</h3><span class="spacer"></span><button class="btn sm ghost" data-act="sk-cancel">${ic('x')}Batal</button></div>
+      <div class="grid3">
+        <div><label class="f">Nama sekolah *</label><input type="text" id="ns-nama" placeholder="mis. SD 3 Terban"></div>
+        ${adm ? `<div><label class="f">Fasilitator 1</label><select id="ns-f1">${opts([''].concat(fasilUsers().map(u => u.username)), '', ['— pilih —'].concat(fasilUsers().map(lbl)))}</select></div>`
+        : `<div><label class="f">Fasilitator 1</label><input type="text" value="${esc(S.user.nama)} (Anda)" disabled></div>`}
+        <div><label class="f">Fasilitator 2 (rekan)</label><select id="ns-f2">${opts([''].concat((adm ? fasilUsers() : others).map(u => u.username)), '', ['— belum ada —'].concat((adm ? fasilUsers() : others).map(lbl)))}</select></div>
+      </div>
+      <div class="row" style="margin-top:14px"><button class="btn pri" data-act="sk-add">${ic('check')}Simpan sekolah</button>
+      <span class="small muted">Kepala sekolah & data guru diisi setelah sekolah tersimpan.</span></div></div>`;
+  }
+
+  function sekolahCard(s) {
+    const adm = isAdmin();
+    const me = S.user.username;
+    const isMine = inFasil(s, me);
+    const guru = R.sortPeserta((s.peserta || []).filter(p => p.id !== 'ks_' + s.id));
+    const done = doneOf(s.id);
+    const open = S.open.has(s.id) || (S.sekolah.filter(x => canEdit(x)).length === 1);
+    const f = fasilOf(s);
+    const cand = fasilUsers();
+    const lbl = u => u.nama + ' (' + u.username + ')';
+    let fasilField;
+    if (adm) {
+      fasilField = [0, 1].map(i => `<div><label class="f">Fasilitator ${i + 1}</label><select data-fs="${i}" data-sid="${s.id}">${opts([''].concat(cand.map(u => u.username)), f[i] || '', [i ? '— belum ada —' : '— pilih —'].concat(cand.map(lbl)))}</select></div>`).join('');
+    } else {
+      const partner = f.find(x => !eqU(x, me)) || '';
+      const others = cand.filter(u => !eqU(u.username, me));
+      fasilField = `<div><label class="f">Fasilitator 1</label><input type="text" value="${esc(S.user.nama)} (Anda)" disabled></div>
+        <div><label class="f">Fasilitator 2 (rekan)</label><select data-fs="partner" data-sid="${s.id}">${opts([''].concat(others.map(u => u.username)), partner, ['— belum ada —'].concat(others.map(lbl)))}</select></div>`;
+    }
+    const canDel = adm || (isMine && !hasReports(s.id));
+    return `<details class="card skc${isMine ? ' mine' : ''}" data-sk-card="${s.id}"${open ? ' open' : ''}>
+      <summary>${ring(done, 22, 54)}
+        <div class="ttl"><h3>${esc(s.nama)}</h3><div class="meta"><span>${ic('user')} ${esc(s.ksNama || 'Kepala sekolah belum diisi')}</span><span>${ic('users')} ${guru.length} guru</span></div>
+        <div style="margin-top:6px">${fasilChips(s)}</div></div>
+        ${!s.ksNama ? '<span class="pill draf">Lengkapi data</span>' : ''}${ic('chevron', 'lg chev')}</summary>
+      <div class="body">
+        <div class="grid3">
+          <div><label class="f">Nama sekolah</label><input type="text" data-sk="nama" data-sid="${s.id}" value="${esc(s.nama)}"></div>
+          <div><label class="f">Nama kepala sekolah (dengan gelar)</label><input type="text" data-sk="ksNama" data-sid="${s.id}" value="${esc(s.ksNama)}" placeholder="mis. Siti Aminah, S.Pd."></div>
+          <div><label class="f">NIP kepala sekolah</label><input type="text" data-sk="ksNip" data-sid="${s.id}" value="${esc(s.ksNip)}" placeholder="mis. 19750312 200012 2 003" inputmode="numeric"></div>
+          ${fasilField}
+        </div>
+        <div class="subhead">${ic('users')}<h4>Data guru (${guru.length})</h4><span class="spacer"></span>
+          <button class="btn sm ghost" data-act="paste-toggle" data-sid="${s.id}">Tempel daftar sekaligus</button></div>
+        ${guru.length ? `<div class="tbwrap"><table class="tb"><thead><tr><th style="width:44%">Nama</th><th>Jabatan</th><th style="width:90px">Kelas</th><th style="width:44px"></th></tr></thead><tbody>
+          ${guru.map(p => `<tr><td><input type="text" data-pn="${s.id}|${p.id}" value="${esc(p.nama)}"></td>
+            <td><select data-pj="${s.id}|${p.id}|jabatan">${opts(JABATAN, p.jabatan, ['— jabatan —'].concat(JABATAN.slice(1)))}</select></td>
+            <td><select data-pj="${s.id}|${p.id}|kelas"${p.jabatan === 'Guru Kelas' ? '' : ' disabled'}>${opts(KELAS, p.kelas, ['–', '1', '2', '3', '4', '5', '6'])}</select></td>
+            <td><button class="iconbtn" data-act="del-peserta" data-sid="${s.id}" data-id="${p.id}" title="Hapus">${ic('trash')}</button></td></tr>`).join('')}
+          </tbody></table></div>` : '<p class="small muted" style="margin:0 0 6px">Belum ada guru. Tambahkan di bawah, tempel daftar, atau impor nilai pretes — nama guru terbentuk otomatis.</p>'}
+        <div class="addrow"><input type="text" id="ng-nama-${s.id}" placeholder="Nama guru (dengan gelar)">
+          <select id="ng-jab-${s.id}">${opts(JABATAN_GURU, 'Guru Kelas')}</select>
+          <select id="ng-kel-${s.id}">${opts(KELAS, '', ['kelas', '1', '2', '3', '4', '5', '6'])}</select>
+          <button class="btn" data-act="guru-add" data-sid="${s.id}">${ic('plus')}Tambah</button></div>
+        <div id="paste-${s.id}" style="display:none;margin-top:12px"><label class="f">Satu guru per baris: <i>Nama, Jabatan/Kelas</i></label>
+          <textarea data-paste="${s.id}" placeholder="Budi Santoso, S.Pd., Guru Kelas 3&#10;Rina Wati, Guru PAI&#10;Agus, Tenaga Kependidikan" style="min-height:90px"></textarea>
+          <button class="btn sm pri" data-act="paste-peserta" data-sid="${s.id}" style="margin-top:8px">Tambahkan ke daftar</button></div>
+        <div class="row" style="margin-top:20px"><a class="btn" href="#/buat/${s.id}">${ic('file')}Buka 22 laporan</a><span class="spacer"></span>
+          ${canDel ? `<button class="btn danger" data-act="sk-del" data-sid="${s.id}">${ic('trash')}Hapus sekolah</button>` : ''}</div>
+      </div></details>`;
   }
 
   function markPeserta(sid) {
@@ -488,23 +629,49 @@
       const last = m.length > 1 ? m[m.length - 1] : '';
       const pj = I.parseJabatan(last);
       if (m.length > 2) nama = pj.jabatan ? m.slice(0, -1).join(',').trim() : line;
+      else if (m.length === 2 && !pj.jabatan) nama = line;
       const exist = s.peserta.find(p => I.normName(p.nama) === I.normName(nama));
       if (exist) { if (!exist.jabatan && pj.jabatan) Object.assign(exist, pj); return; }
-      s.peserta.push({ id: R.uid(), nama: prettyName(nama), jabatan: pj.jabatan, kelas: pj.kelas });
+      s.peserta.push({ id: R.uid(), nama: prettyName(nama), jabatan: pj.jabatan || 'Guru Kelas', kelas: pj.kelas });
       n++;
     });
     return n;
   }
 
   const saveSekolahDeb = debounceBy(async sid => {
-    const s = school(sid); if (!s) return;
-    try { await API.call('saveSekolah', { sekolah: { id: s.id, nama: s.nama, alias: s.alias, fasil: s.fasil, urutan: s.urutan } }); cacheBoot(); }
-    catch (e) { toast(e.message, true, 5000); }
+    const s = school(sid); if (!s || !s.nama.trim()) return;
+    try {
+      const r = await API.call('saveSekolah', { sekolah: { id: s.id, nama: s.nama, alias: s.alias, fasil: fasilOf(s), ksNama: s.ksNama, ksNip: s.ksNip, urutan: s.urutan } });
+      Object.assign(s, { fasil: r.fasil, alias: r.alias }); cacheBoot();
+    } catch (e) { toast(e.message, true, 6000); }
   }, 700);
+
+  /* =========================================================
+   * PENGATURAN PROGRAM (admin)
+   * ========================================================= */
   const saveProgramDeb = debounce(async () => {
     try { S.program = await API.call('saveProgram', { program: S.program }); cacheBoot(); }
     catch (e) { toast(e.message, true, 5000); }
   }, 800);
+
+  function renderProgram() {
+    const P = S.program;
+    const f = (k, label, ph, hint) => `<div><label class="f">${label}</label><input type="text" data-prog="${k}" value="${esc(P[k])}" placeholder="${esc(ph || '')}">${hint ? '<div class="tiny muted" style="margin-top:4px">' + hint + '</div>' : ''}</div>`;
+    app.innerHTML = pageHead('Pengaturan Program', 'Berlaku untuk semua laporan dari semua fasilitator.') + `
+      <div class="card"><div class="card-h">${ic('image')}<h2>Kop / logo berjajar</h2></div>
+        <p class="small muted" style="margin-top:-6px">Tercetak di bagian atas <b>setiap halaman</b> PDF, termasuk sampul. Gunakan satu gambar PNG memanjang (mis. 2000 × 230 piksel) berisi deretan logo.</p>
+        <div id="kopPrev" class="small muted" style="margin:10px 0">${P.kopId ? '<span class="spin"></span>' : 'Belum ada kop.'}</div>
+        <div class="row"><label class="btn pri upl">${ic('upload')}${P.kopId ? 'Ganti' : 'Unggah'} gambar kop<input type="file" accept="image/*" data-act="kop"></label>
+        ${P.kopId ? `<button class="btn danger" data-act="kop-del">${ic('trash')}Hapus kop</button>` : ''}</div></div>
+      <div class="card"><div class="card-h">${ic('file')}<h2>Identitas program</h2></div>
+        <div class="grid2">
+          ${f('program', 'Nama program', 'CERMAT', 'Sampul: “PROGRAM CERMAT” dan kalimat penutup.')}
+          ${f('programKepanjangan', 'Kepanjangan program', 'Cerdas Numerasi dan Matematika Terapan', 'Sampul, di bawah nama program.')}
+          ${f('penyelenggara', 'Penyelenggara', 'Pusat Belajar Guru Kudus', 'Baris kecil di bagian bawah sampul.')}
+          ${f('kota', 'Kota (tanggal tanda tangan jurnal)', 'Kudus', 'Contoh: “Kudus, 20 November 2026”.')}
+        </div><p class="tiny muted" style="margin:12px 0 0">Perubahan tersimpan otomatis.</p></div>`;
+    if (P.kopId) ensureKop().then(() => { const el = document.getElementById('kopPrev'); if (el) el.innerHTML = S.kopData ? `<img class="kop-prev" src="${S.kopData}" alt="Kop">` : 'Kop tidak bisa dimuat.'; });
+  }
 
   /* =========================================================
    * MENU 2 — BUAT LAPORAN
@@ -516,15 +683,16 @@
       const card = s => {
         const st = window.SILABUS.map(p => statusOf(s.id, p.no));
         const l = st.filter(x => x === 'lengkap').length, d = st.filter(x => x === 'draf').length;
-        return `<a class="card pick" href="#/buat/${s.id}"><div class="row"><b>${esc(s.nama)}</b><span class="spacer"></span><span class="pill ${l === 22 ? 'lengkap' : d || l ? 'draf' : 'kosong'}">${l}/22</span></div>
-          <div class="small muted">${esc(fasilNama(s) || 'Fasilitator belum ditentukan')}</div>
-          <div class="bar"><i style="width:${l / 22 * 100}%"></i><i class="d" style="width:${d / 22 * 100}%"></i></div></a>`;
+        return `<a class="pick${canEdit(s) ? '' : ' ro'}" href="#/buat/${s.id}">${ring(l, 22, 58)}
+          <div style="min-width:0;flex:1"><h3>${esc(s.nama)}</h3><div class="meta">${esc(fasilNama(s) || 'Fasilitator belum ditentukan')}</div>
+          <div class="meta" style="margin-top:6px">${d ? `<span class="pill draf">${d} draf</span> ` : ''}${canEdit(s) ? '' : '<span class="pill kosong">hanya baca</span>'}</div></div>${ic('arrowR')}</a>`;
       };
-      app.innerHTML = `<h1 class="pg">Buat Laporan</h1>
-        ${S.sekolah.length ? '' : '<div class="banner info">Belum ada sekolah binaan. Admin perlu menambahkannya di menu Data Sekolah.</div>'}
-        ${mine.length ? `<h3>${isAdmin() ? 'Semua sekolah' : 'Sekolah yang Anda pegang'}</h3><div class="picks">${mine.map(card).join('')}</div>` :
-          (S.user.peran === 'fasilitator' ? '<div class="banner warn">Anda belum ditugaskan ke sekolah mana pun. Hubungi admin.</div>' : '')}
-        ${other.length ? `<h3 style="margin-top:18px">Sekolah lain <span class="small muted">(hanya baca)</span></h3><div class="picks">${other.map(card).join('')}</div>` : ''}`;
+      let h = pageHead('Buat Laporan', 'Pilih sekolah, lalu pendampingan yang akan dilaporkan.');
+      if (!S.sekolah.length) h += emptyState('school', 'Belum ada sekolah binaan', 'Tambahkan dulu di menu Data Sekolah.', `<a class="btn pri" href="#/sekolah">${ic('plus')}Tambah sekolah</a>`);
+      if (mine.length) h += `<div class="sec"><h2>${isAdmin() ? 'Semua sekolah' : 'Sekolah binaan saya'}</h2></div><div class="picks">${mine.map(card).join('')}</div>`;
+      else if (S.user.peran === 'fasilitator' && S.sekolah.length) h += emptyState('school', 'Anda belum memegang sekolah', 'Tambahkan sekolah binaan Anda di menu Data Sekolah.', `<a class="btn pri" href="#/sekolah">${ic('plus')}Tambah sekolah</a>`);
+      if (other.length) h += `<div class="sec"><h2>Sekolah lain · hanya baca</h2></div><div class="picks">${other.map(card).join('')}</div>`;
+      app.innerHTML = h;
     };
     draw();
     if (await refreshRekap()) { if (location.hash === '#/buat') draw(); }
@@ -532,46 +700,47 @@
 
   async function renderPilihP(sid) {
     const s = school(sid);
-    if (!s) { app.innerHTML = '<div class="card">Sekolah tidak ditemukan. <a href="#/buat">Kembali</a></div>'; return; }
+    if (!s) { app.innerHTML = emptyState('alert', 'Sekolah tidak ditemukan', '', '<a class="btn" href="#/buat">Kembali</a>'); return; }
     const draw = () => {
-      const fase = [['Fase 1 · Memahami & Menguasai', 1, 7], ['Fase 2 · Merencanakan, Menilai & Mempraktikkan', 8, 16], ['Fase 3 · Mempraktikkan & Menumbuhkan Budaya', 17, 22]];
-      app.innerHTML = `<a href="#/buat" class="small">← Pilih sekolah</a><h1 class="pg">${esc(s.nama)}</h1>
-        <p class="muted small" style="margin-top:-6px">Fasilitator: ${esc(fasilNama(s) || '-')}${canEdit(s) ? '' : ' · <b>hanya baca</b>'}</p>
-        ${fase.map(([t, a, b]) => `<h3>${t}</h3><div class="pcards">${window.SILABUS.filter(p => p.no >= a && p.no <= b).map(p => {
+      const fase = [['f1', 'Fase 1', 'Memahami & Menguasai', 1, 7], ['f2', 'Fase 2', 'Merencanakan, Menilai & Mempraktikkan', 8, 16], ['f3', 'Fase 3', 'Mempraktikkan & Menumbuhkan Budaya', 17, 22]];
+      const done = doneOf(s.id);
+      app.innerHTML = pageHead(esc(s.nama), `${esc(fasilNama(s) || '-')}${s.ksNama ? ' · Kepala sekolah: ' + esc(s.ksNama) : ''}${canEdit(s) ? '' : ' · <b>hanya baca</b>'}`,
+        ring(done, 22, 58), `<a class="crumb" href="#/buat">${ic('arrowL')}Semua sekolah</a>`) +
+        (!s.ksNama && canEdit(s) ? `<div class="banner warn small">${ic('alert')}<div>Nama kepala sekolah belum diisi — diperlukan untuk tanda tangan jurnal. <a href="#/sekolah">Lengkapi di Data Sekolah →</a></div></div>` : '') +
+        fase.map(([c, t, d, a, b]) => `<div class="phase ${c}"><b>${t}</b><span>${d}</span></div><div class="pcards">${window.SILABUS.filter(p => p.no >= a && p.no <= b).map(p => {
           const st = statusOf(s.id, p.no); const rk = S.rekap.get(R.key(s.id, p.no));
-          return `<a class="pcard ${st}" href="#/laporan/${s.id}/${p.no}/1"><span class="no">${p.no}</span><span class="tt">${esc(p.judul)}</span>
-            <span class="meta"><span class="pill ${st}">${st === 'kosong' ? 'belum' : st}</span>${rk && rk.tanggal ? ' ' + esc(R.tanggalPanjang(rk.tanggal).split(', ')[1]) : ''}</span></a>`;
-        }).join('')}</div>`).join('')}`;
+          return `<a class="pcard ${c} ${st}" href="#/laporan/${s.id}/${p.no}/1"><span class="no">${p.no}</span><div><div class="tt">${esc(p.judul)}</div>
+            <div class="meta"><span class="pill ${st}">${st === 'kosong' ? 'belum' : st}</span>${rk && rk.tanggal ? esc(R.tanggalPanjang(rk.tanggal).split(', ')[1]) : ''}</div></div></a>`;
+        }).join('')}</div>`).join('');
     };
     draw();
     if (await refreshRekap()) { if (location.hash === '#/buat/' + sid) draw(); }
   }
 
   /* ---------- Editor ---------- */
-  const STEPS = no => ['Pelaksanaan', R.hasTes(no) ? 'Kehadiran & Nilai' : 'Kehadiran', R.isObservasi(no) ? 'Kegiatan & Observasi' : 'Kegiatan & Capaian', 'Evaluasi', 'Lampiran', 'Periksa & Pratinjau'];
+  const STEPS = no => ['Pelaksanaan', R.hasTes(no) ? 'Kehadiran & Nilai' : 'Kehadiran', R.isObservasi(no) ? 'Kegiatan & Observasi' : 'Kegiatan & Capaian', 'Evaluasi', 'Lampiran', 'Periksa & Unduh'];
   let readOnly = false;
 
   async function openReport(sid, no, step) {
     const s = school(sid);
-    if (!s || !(no >= 1 && no <= 22)) { app.innerHTML = '<div class="card">Laporan tidak ditemukan. <a href="#/buat">Kembali</a></div>'; return; }
+    if (!s || !(no >= 1 && no <= 22)) { app.innerHTML = emptyState('alert', 'Laporan tidak ditemukan', '', '<a class="btn" href="#/buat">Kembali</a>'); return; }
     const key = R.key(sid, no);
     S.step = Math.min(6, Math.max(1, step || 1));
     if (!S.cur || S.cur.key !== key) {
       S.imp = null; S.showAll = false;
-      app.innerHTML = '<p class="muted">Memuat laporan…</p>';
+      app.innerHTML = '<div class="loading"><span class="spin"></span> Memuat laporan…</div>';
       const local = await DB.get('reports', key);
       const rk = S.rekap.get(key);
       if (local) {
         S.cur = normalize(local);
-        if (rk || local._version > 0) refreshFromServer(key);   // cek versi terbaru di Drive (di belakang layar)
+        if (rk || local._version > 0) refreshFromServer(key);
       } else if (navigator.onLine !== false) {
-        // selalu cek Drive: daftar status di perangkat ini bisa saja belum terbarui
         try {
           const g = await API.call('getReport', { key });
           S.cur = g.report ? normalize(Object.assign(g.report, { _version: g.version })) : normalize(Object.assign(R.blank(sid, no), { _version: g.version || 0 }));
           if (g.report) await DB.put('reports', clone(S.cur), key);
         } catch (e) {
-          if (!e.offline || (rk && rk.version > 0)) { app.innerHTML = `<div class="card">Laporan belum bisa dimuat: ${esc(e.message)} <a href="#/buat/${sid}">Kembali</a></div>`; return; }
+          if (!e.offline || (rk && rk.version > 0)) { app.innerHTML = emptyState('alert', 'Laporan belum bisa dimuat', esc(e.message), `<a class="btn" href="#/buat/${sid}">Kembali</a>`); return; }
           S.cur = normalize(Object.assign(R.blank(sid, no), { _version: 0 }));
         }
       } else S.cur = normalize(Object.assign(R.blank(sid, no), { _version: 0 }));
@@ -605,9 +774,11 @@
     if (!S.cur) return;
     const s = school(S.cur.sekolahId);
     const d = stepDots(S.cur, s);
-    document.querySelectorAll('.steps a').forEach((a, i) => { const dot = a.querySelector('.dot'); if (dot) dot.className = 'dot ' + d[i]; });
+    document.querySelectorAll('.stepper a .n').forEach((n, i) => { n.className = 'n ' + d[i]; n.innerHTML = d[i] === 'ok' ? ic('check') : String(i + 1); });
     const pill = document.getElementById('statpill');
     if (pill) { const st = curStatus(); pill.className = 'pill ' + st; pill.textContent = st === 'kosong' ? 'baru' : st; }
+    const sf = document.getElementById('sfoot');
+    if (sf) { const ck = R.checklist(S.cur, s).filter(c => c.wajib); sf.textContent = ck.filter(c => c.ok).length + ' dari ' + ck.length + ' bagian wajib lengkap'; }
   }
 
   function renderEditor() {
@@ -617,26 +788,31 @@
     const dots = stepDots(rep, s);
     const st = curStatus();
     const rk = S.rekap.get(rep.key);
+    const fase = rep.no <= 7 ? 'f1' : rep.no <= 16 ? 'f2' : 'f3';
     app.innerHTML = `
-      <div class="ed-head"><div><a href="#/buat/${s.id}" class="small">← ${esc(s.nama)}</a>
+      <div class="ed-head"><a class="crumb" href="#/buat/${s.id}">${ic('arrowL')}${esc(s.nama)}</a>
         <h1>P${rep.no} · ${esc(sil.judul)}</h1>
-        <div class="muted small">${esc(s.nama)} · ${esc(sil.tahap)} · ${esc(sil.fase)} <span id="statpill" class="pill ${st}">${st === 'kosong' ? 'baru' : st}</span>
-        ${rk && rk.updatedBy ? ` · terakhir diubah ${esc(rk.updatedBy)}, ${fmtWaktu(rk.updatedAt)}` : ''}</div></div></div>
-      ${readOnly ? `<div class="banner info small">Mode baca — laporan ini dipegang <b>${esc(fasilNama(s) || 'fasilitator lain')}</b>; Anda bisa melihat isinya dan pratinjau PDF.</div>` : ''}
-      <nav class="steps">${names.map((n, i) => `<a href="#/laporan/${s.id}/${rep.no}/${i + 1}" class="${S.step === i + 1 ? 'on' : ''}">${i + 1}. ${n}<span class="dot ${dots[i]}"></span></a>`).join('')}</nav>
-      <div id="stepbody"></div>
+        <div class="meta"><span class="phase ${fase}" style="margin:0"><b>${esc(sil.fase)}</b></span><span>${esc(sil.tahap)}</span>
+          <span id="statpill" class="pill ${st}">${st === 'kosong' ? 'baru' : st}</span>
+          ${rk && rk.updatedBy ? `<span>Terakhir diubah ${esc(rk.updatedBy.split(',')[0])}, ${fmtWaktu(rk.updatedAt)}</span>` : ''}</div></div>
+      ${readOnly ? `<div class="banner info small" style="margin-top:14px">${ic('eye')}<div>Mode baca — laporan ini dipegang <b>${esc(fasilNama(s) || 'fasilitator lain')}</b>; Anda bisa melihat isinya dan pratinjau PDF.</div></div>` : ''}
+      <div class="ed" style="margin-top:18px">
+        <nav class="stepper">${names.map((n, i) => `<a href="#/laporan/${s.id}/${rep.no}/${i + 1}" class="${S.step === i + 1 ? 'on' : ''}"><span class="n ${dots[i]}">${dots[i] === 'ok' ? ic('check') : i + 1}</span><span class="lbl">${n}</span></a>`).join('')}
+          <div class="sfoot" id="sfoot"></div></nav>
+        <div id="stepbody"></div>
+      </div>
       <div class="navbtm"><div class="in">
-        ${S.step > 1 ? `<a class="btn" href="#/laporan/${s.id}/${rep.no}/${S.step - 1}">← Sebelumnya</a>` : ''}
+        ${S.step > 1 ? `<a class="btn" href="#/laporan/${s.id}/${rep.no}/${S.step - 1}">${ic('arrowL')}Sebelumnya</a>` : `<a class="btn ghost" href="#/buat/${s.id}">${ic('arrowL')}Daftar laporan</a>`}
         <span class="spacer"></span>
-        ${S.step < 6 ? `<a class="btn pri" href="#/laporan/${s.id}/${rep.no}/${S.step + 1}">Berikutnya →</a>` : `<button class="btn ok" data-act="download"${R.isComplete(rep, s) ? '' : ' disabled'}>Unduh PDF</button>`}
+        ${S.step < 6 ? `<a class="btn pri" href="#/laporan/${s.id}/${rep.no}/${S.step + 1}">Berikutnya${ic('arrowR')}</a>` : `<button class="btn ok" data-act="download"${R.isComplete(rep, s) ? '' : ' disabled'}>${ic('download')}Unduh PDF</button>`}
       </div></div>`;
     rerenderStep(true);
   }
 
   function conflictBanner(rep) {
     if (!rep._conflict || readOnly) return '';
-    return `<div class="banner bad"><b>Bentrok versi.</b> Laporan ini sudah diubah oleh ${esc(rep._conflict.by || 'pengguna lain')} (${fmtWaktu(rep._conflict.at)}) sementara perubahan Anda belum terkirim.
-      <div class="row" style="margin-top:8px"><button class="btn sm" data-act="conf-server">Pakai versi server (buang perubahan saya)</button><button class="btn sm danger" data-act="conf-mine">Timpa dengan versi saya</button></div></div>`;
+    return `<div class="banner bad">${ic('alert')}<div><b>Bentrok versi.</b> Laporan ini sudah diubah oleh ${esc(rep._conflict.by || 'pengguna lain')} (${fmtWaktu(rep._conflict.at)}) sementara perubahan Anda belum terkirim.
+      <div class="row" style="margin-top:10px"><button class="btn sm" data-act="conf-server">Pakai versi server (buang perubahan saya)</button><button class="btn sm danger" data-act="conf-mine">Timpa dengan versi saya</button></div></div></div>`;
   }
 
   function rerenderStep(noScroll) {
@@ -656,18 +832,25 @@
 
   /* ---- Langkah 1 ---- */
   function step1(rep, s, sil) {
-    return `<div class="card"><h2>Waktu & tempat</h2>
+    const f = fasilOf(s);
+    const hadir = R.fasilHadir(rep, s);
+    return `<div class="card"><div class="card-h">${ic('users')}<h2>Fasilitator yang hadir</h2></div>
+      ${f.length ? `<div class="fh">${f.map(u => `<label><input type="checkbox" data-act="fh" data-u="${esc(u)}"${hadir.some(x => eqU(x, u)) ? ' checked' : ''}>
+        <span><b>${esc(namaUser(u))}</b><br><span class="tiny muted">${esc(u)}</span></span></label>`).join('')}</div>
+        <p class="tiny muted" style="margin:10px 0 0">Nama yang dicentang tercetak di sampul dan menandatangani jurnal kegiatan.</p>`
+      : `<div class="banner warn small">${ic('alert')}<div>Sekolah ini belum punya fasilitator. Atur di <a href="#/sekolah">Data Sekolah</a>.</div></div>`}</div>
+      <div class="card"><div class="card-h">${ic('calendar')}<h2>Waktu & tempat</h2></div>
       <div class="grid2">
         <div><label class="f">Tanggal pelaksanaan</label><input type="date" data-r="tanggal" value="${esc(rep.tanggal)}"></div>
-        <div class="row" style="align-items:flex-end"><div style="flex:1"><label class="f">Jam mulai</label><input type="text" data-r="jamMulai" value="${esc(rep.jamMulai)}" placeholder="08.00"></div>
+        <div class="row" style="align-items:flex-end;flex-wrap:nowrap"><div style="flex:1"><label class="f">Jam mulai</label><input type="text" data-r="jamMulai" value="${esc(rep.jamMulai)}" placeholder="08.00"></div>
         <div style="flex:1"><label class="f">Jam selesai</label><input type="text" data-r="jamSelesai" value="${esc(rep.jamSelesai)}" placeholder="11.00"></div></div>
         <div><label class="f">Tempat</label><input type="text" data-r="tempat" value="${esc(rep.tempat)}" placeholder="mis. Ruang kelas 6 ${esc(s.nama)}">
-        <button class="btn sm" data-act="tempat-sekolah" style="margin-top:6px">Isi: ${esc(s.nama)}</button></div>
+        <button class="btn sm ghost" data-act="tempat-sekolah" style="margin-top:6px">${ic('school')}Isi: ${esc(s.nama)}</button></div>
       </div>
-      <label class="f" style="margin-top:12px">Kalimat di laporan</label><div class="preview" id="pv-pel">${esc(R.kalimatPelaksanaan(rep, s))}</div></div>
-      <div class="card"><h3>Ringkasan dari silabus</h3>
+      <label class="f" style="margin-top:16px">Kalimat di laporan</label><div class="preview" id="pv-pel">${esc(R.kalimatPelaksanaan(rep, s))}</div></div>
+      <div class="card"><div class="card-h">${ic('file')}<h2>Ringkasan dari silabus</h2></div>
         <table class="simple"><tbody>
-        <tr><th style="width:170px">Tahap</th><td>${esc(sil.tahap)}</td></tr>
+        <tr><th>Tahap</th><td>${esc(sil.tahap)}</td></tr>
         <tr><th>Buku modul</th><td>${esc(sil.fase)}</td></tr>
         <tr><th>Alokasi waktu</th><td>${esc(sil.alokasi)} · ${sil.kegiatan.length} sesi</td></tr>
         <tr><th>Metode</th><td>${esc(sil.metode)}</td></tr>
@@ -675,10 +858,26 @@
         <tr><th>Lembar kerja</th><td>${sil.lk.map(esc).join('<br>')}</td></tr>
         <tr><th>Sumber bahan</th><td>${esc(sil.sumber)}</td></tr>
         </tbody></table>
-        <p class="small muted">Latar belakang, tujuan, indikator, dan langkah kegiatan otomatis diambil dari silabus.</p></div>`;
+        <p class="tiny muted" style="margin:10px 0 0">Latar belakang, tujuan, indikator, dan langkah kegiatan otomatis diambil dari silabus.</p></div>`;
   }
 
-  /* ---- Langkah 2 ---- */
+  function pesertaRow(s, p, withCheck, hadirSet, rep, ed) {
+    let extra = '';
+    if (rep && R.hasTes(rep.no) && rep.tes) {
+      const sk = R.skorPeserta(rep, p.nama);
+      extra = `<small>Pretes ${sk.pre === null ? '–' : R.fmt(sk.pre)} · Postes ${sk.post === null ? '–' : R.fmt(sk.post)}</small>`;
+    }
+    const isKs = p.id === 'ks_' + s.id;
+    const dis = ed && !isKs ? '' : ' disabled';
+    return `<div class="pr">
+      ${withCheck ? `<input type="checkbox" data-act="hadir" data-id="${p.id}"${hadirSet.has(p.id) ? ' checked' : ''}${ed ? '' : ' disabled'}>` : '<span></span>'}
+      <div class="nm">${esc(p.nama)}${extra}</div>
+      <select class="pj" data-pj="${s.id}|${p.id}|jabatan"${dis}>${opts(JABATAN, p.jabatan, ['— jabatan —'].concat(JABATAN.slice(1)))}</select>
+      <select class="pk" data-pj="${s.id}|${p.id}|kelas"${p.jabatan === 'Guru Kelas' && ed ? '' : ' disabled'}>${opts(KELAS, p.kelas, ['kelas', '1', '2', '3', '4', '5', '6'])}</select>
+      <span></span>
+    </div>`;
+  }
+
   function step2(rep, s) {
     let html = '';
     if (R.hasTes(rep.no)) html += tesCard(rep, s);
@@ -871,21 +1070,24 @@
   }
 
   /* ---- Langkah 6 ---- */
+  /* ---- Langkah 6 ---- */
   function step6(rep, s) {
     const ck = R.checklist(rep, s);
     const done = R.isComplete(rep, s);
-    return `<div class="card"><h2>Daftar periksa</h2><ul class="ck">${ck.map(c => `<li><span class="ic ${c.ok ? 'ok' : c.wajib ? 'no' : 'opt'}">${c.ok ? '✓' : c.wajib ? '!' : '–'}</span>
-      <span>${esc(c.label)}</span><span class="spacer"></span>${c.ok ? '' : `<a class="small" href="#/laporan/${s.id}/${rep.no}/${c.step}">${readOnly ? 'Lihat' : 'Lengkapi'} →</a>`}</li>`).join('')}</ul></div>
-      <div class="card"><h2>PDF laporan</h2>
-      ${done ? `<p>Semua bagian wajib sudah lengkap. File: <b>${esc(R.fileName(rep, s))}</b></p><p class="small muted">Saat diunduh, salinan PDF juga diarsipkan otomatis ke folder sekolah di Google Drive.</p>` : '<div class="banner warn small">Masih ada bagian wajib yang belum lengkap. Pratinjau tetap bisa dilihat dengan tanda <b>DRAF</b>; tombol unduh aktif setelah semua lengkap.</div>'}
-      <div class="row"><button class="btn" data-act="preview">Pratinjau</button><button class="btn ok" data-act="download"${done ? '' : ' disabled'}>Unduh PDF</button></div></div>
-      ${!readOnly && (rep._version > 0 || rep._dirty) ? `<div class="card"><h3>Hapus laporan</h3><p class="small muted">Folder laporan ini (isian, foto, PDF) dipindah ke Sampah Google Drive dan masih bisa dipulihkan admin selama 30 hari.</p><button class="btn danger" data-act="del-report">Hapus laporan ini</button></div>` : ''}`;
+    const link = c => c.step === 0 ? '#/sekolah' : `#/laporan/${s.id}/${rep.no}/${c.step}`;
+    return `<div class="card"><div class="card-h">${ic('check')}<h2>Daftar periksa</h2></div><ul class="ck">${ck.map(c => `<li><span class="ici ${c.ok ? 'ok' : c.wajib ? 'no' : 'opt'}">${c.ok ? '✓' : c.wajib ? '!' : '–'}</span>
+      <span>${esc(c.label)}</span><span class="spacer"></span>${c.ok ? '' : `<a class="small" href="${link(c)}">${readOnly ? 'Lihat' : 'Lengkapi'} →</a>`}</li>`).join('')}</ul></div>
+      <div class="card"><div class="card-h">${ic('file')}<h2>PDF laporan</h2></div>
+      ${done ? `<div class="banner ok small">${ic('check')}<div>Semua bagian wajib lengkap. File: <b>${esc(R.fileName(rep, s))}</b><br>Saat diunduh, salinan PDF juga diarsipkan otomatis ke folder sekolah di Google Drive.</div></div>`
+        : `<div class="banner warn small">${ic('alert')}<div>Masih ada bagian wajib yang belum lengkap. Pratinjau tetap bisa dilihat dengan tanda <b>DRAF</b>; tombol unduh aktif setelah semua lengkap.</div></div>`}
+      <div class="row"><button class="btn" data-act="preview">${ic('eye')}Pratinjau</button><button class="btn ok" data-act="download"${done ? '' : ' disabled'}>${ic('download')}Unduh PDF</button></div></div>
+      ${!readOnly && (rep._version > 0 || rep._dirty) ? `<div class="card"><div class="card-h">${ic('trash')}<h3>Hapus laporan</h3></div><p class="small muted" style="margin-top:-6px">Folder laporan ini (isian, foto, PDF) dipindah ke Sampah Google Drive dan masih bisa dipulihkan admin selama 30 hari.</p><button class="btn danger" data-act="del-report">${ic('trash')}Hapus laporan ini</button></div>` : ''}`;
   }
 
   async function makePdfBytes(rep, s, draft) {
     await fetchImages(allImageIds(rep).concat(S.program.kopId ? [S.program.kopId] : []));
     await ensureKop();
-    return PdfGen.generate(rep, s, pdfSettings(s), getImageRec, { draft });
+    return PdfGen.generate(rep, s, pdfSettings(s, rep), getImageRec, { draft });
   }
   async function archivePdf(key, bytes, name) {
     try {
@@ -939,7 +1141,7 @@
     if (!ex.rows.length) return toast('Tidak ada baris yang bisa diambil. Periksa pilihan kolom dan sekolah.', true, 5000);
     rep.tes = { fileName: imp.fileName, importedAt: Date.now(), rows: ex.rows.map(r => Object.assign({}, r, { nama: prettyName(r.nama) })) };
     const newAlias = [...imp.schools].filter(v => v.trim().toLowerCase() !== s.nama.trim().toLowerCase() && !(s.alias || []).includes(v));
-    if (newAlias.length && isAdmin()) { s.alias = (s.alias || []).concat(newAlias); saveSekolahDeb(s.id); }
+    if (newAlias.length && canEdit(s)) { s.alias = (s.alias || []).concat(newAlias); saveSekolahDeb(s.id); }
     s.peserta = s.peserta || [];
     const hadir = new Set(rep.hadir || []);
     let baru = 0;
@@ -971,24 +1173,25 @@
           if (st === 'lengkap') lengkap++; else if (st === 'draf') draf++;
           return `<td><button class="cell ${st}" data-cell="${s.id}|${p.no}" title="P${p.no} · ${esc(p.judul)} — ${st}${st === 'lengkap' ? ' (klik untuk unduh PDF)' : ''}">${p.no}</button></td>`;
         }).join('');
-        const l = window.SILABUS.filter(p => statusOf(s.id, p.no) === 'lengkap').length;
-        return `<tr><td class="sk"><b>${esc(s.nama)}</b><div class="small muted">${esc((fasilNama(s) || '-').split(',')[0])} · ${l}/22</div></td>${cells}</tr>`;
+        return `<tr><td class="sk"><b>${esc(s.nama)}</b><div class="tiny muted">${esc(fasilOf(s).map(u => namaUser(u).split(',')[0]).join(' & ') || '-')} · ${doneOf(s.id)}/22</div></td>${cells}</tr>`;
       }).join('');
-      app.innerHTML = `<h1 class="pg">Unduh Laporan</h1>
-        <div class="card"><div class="row"><h2 style="margin:0">Ringkasan</h2><span class="spacer"></span>
-          <div class="legend"><span><i style="background:#f1f3f7"></i>Belum</span><span><i style="background:#fde7b0"></i>Draf</span><span><i style="background:#bfe8cf"></i>Lengkap — klik untuk unduh</span></div></div>
-          <div class="stats" style="margin-top:10px"><div class="stat"><b>${lengkap}</b>lengkap</div><div class="stat"><b>${draf}</b>draf</div><div class="stat"><b>${total - lengkap - draf}</b>belum</div><div class="stat"><b>${total ? Math.round(lengkap / total * 100) : 0}%</b>progres</div></div></div>
-        ${sk.length ? `<div class="matrix-wrap"><table class="matrix"><thead><tr class="fase"><th class="sk"></th><th colspan="7">FASE 1 · 1–7</th><th colspan="9">FASE 2 · 8–16</th><th colspan="6">FASE 3 · 17–22</th></tr>
-          <tr><th class="sk">Sekolah</th>${window.SILABUS.map(p => `<th title="${esc(p.judul)}">${p.no}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="banner info">Belum ada sekolah.</div>'}
-        <div class="grid2" style="margin-top:16px">
-          <div class="card"><h3>ZIP per pendampingan</h3><p class="small muted">Semua laporan lengkap satu pendampingan dari seluruh sekolah.</p>
+      app.innerHTML = pageHead('Unduh Laporan', 'Klik kotak hijau untuk mengunduh PDF laporan yang sudah lengkap.') + `
+        <div class="stats" style="margin-bottom:18px"><div class="stat ok"><b>${lengkap}</b><span>laporan lengkap</span></div><div class="stat warn"><b>${draf}</b><span>masih draf</span></div>
+          <div class="stat"><b>${total - lengkap - draf}</b><span>belum dibuat</span></div><div class="stat gold"><b>${total ? Math.round(lengkap / total * 100) : 0}%</b><span>progres program</span></div></div>
+        ${sk.length ? `<div class="matrix-wrap"><table class="matrix"><thead><tr class="fase"><th class="sk"></th><th colspan="7" class="f1">FASE 1</th><th colspan="9" class="f2">FASE 2</th><th colspan="6" class="f3">FASE 3</th></tr>
+          <tr><th class="sk">Sekolah</th>${window.SILABUS.map(p => `<th title="${esc(p.judul)}">${p.no}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>
+          <div class="legend" style="margin:10px 2px 0"><span><i style="background:#f2f4f8"></i>Belum</span><span><i style="background:#fdebc0"></i>Draf</span><span><i style="background:#c9ecd8"></i>Lengkap — klik untuk unduh</span></div>`
+        : emptyState('school', 'Belum ada sekolah', '')}
+        <div class="sec"><h2>Unduh sekaligus (ZIP)</h2></div>
+        <div class="grid2">
+          <div class="card"><div class="card-h">${ic('zip')}<h3>Per pendampingan</h3></div><p class="small muted" style="margin-top:-6px">Semua laporan lengkap satu pendampingan dari seluruh sekolah.</p>
             <select id="bulkNo">${window.SILABUS.map(p => `<option value="${p.no}">P${p.no} · ${esc(p.judul)}</option>`).join('')}</select>
-            <div id="bulkNoInfo" class="small muted" style="margin:6px 0"></div><button class="btn pri" data-act="bulk-no">Unduh ZIP</button></div>
-          <div class="card"><h3>ZIP per sekolah</h3><p class="small muted">Semua laporan lengkap (P1–P22) satu sekolah.</p>
+            <div id="bulkNoInfo" class="small muted" style="margin:8px 0 12px"></div><button class="btn pri" data-act="bulk-no">${ic('download')}Unduh ZIP</button></div>
+          <div class="card"><div class="card-h">${ic('zip')}<h3>Per sekolah</h3></div><p class="small muted" style="margin-top:-6px">Semua laporan lengkap (P1–P22) satu sekolah.</p>
             <select id="bulkSk">${sk.map(s => `<option value="${s.id}">${esc(s.nama)}</option>`).join('')}</select>
-            <div id="bulkSkInfo" class="small muted" style="margin:6px 0"></div><button class="btn pri" data-act="bulk-sk">Unduh ZIP</button></div>
+            <div id="bulkSkInfo" class="small muted" style="margin:8px 0 12px"></div><button class="btn pri" data-act="bulk-sk">${ic('download')}Unduh ZIP</button></div>
         </div>
-        <p class="small muted">PDF yang sudah diarsipkan di Google Drive diambil langsung; yang belum, disusun di perangkat ini lalu diarsipkan.</p>`;
+        <p class="tiny muted">PDF yang sudah diarsipkan di Google Drive diambil langsung; yang belum, disusun di perangkat ini lalu diarsipkan.</p>`;
       updateBulkInfo();
     };
     draw();
@@ -1047,65 +1250,76 @@
   }
 
   /* =========================================================
-   * MENU 4 — KELOLA PENGGUNA (admin)
+   * KELOLA PENGGUNA (admin)
    * ========================================================= */
   async function renderPengguna() {
-    app.innerHTML = '<h1 class="pg">Kelola Pengguna</h1><p class="muted">Memuat…</p>';
+    app.innerHTML = pageHead('Kelola Pengguna', 'Akun fasilitator, admin, dan pemantau.') + '<div class="loading"><span class="spin"></span> Memuat…</div>';
     let users, usage = null;
-    try { users = await API.call('listUsers'); } catch (e) { app.innerHTML = `<div class="card">${esc(e.message)}</div>`; return; }
+    try { users = await API.call('listUsers'); } catch (e) { app.innerHTML = emptyState('alert', 'Gagal memuat', esc(e.message)); return; }
     try { usage = await API.call('usage'); } catch (e) { /* abaikan */ }
-    S.pengguna = users.map(u => ({ username: u.username, nama: u.nama, peran: u.peran, aktif: u.aktif })); cacheBoot();
-    const skOf = u => S.sekolah.filter(s => eqU(s.fasil, u.username)).map(s => s.nama);
+    S.pengguna = users.map(u => ({ username: u.username, nama: u.nama, peran: u.peran, aktif: u.aktif, nip: u.nip })); cacheBoot();
+    const skOf = u => S.sekolah.filter(s => inFasil(s, u.username)).map(s => s.nama);
     const pct = usage ? Math.round(usage.used / usage.limit * 1000) / 10 : 0;
-    app.innerHTML = `<h1 class="pg">Kelola Pengguna</h1>
-      <div class="card"><h3>Peran</h3><ul class="small" style="margin:0">
-        <li><b>Admin</b> — mengelola pengguna, sekolah, data program; mengedit & menghapus semua laporan.</li>
-        <li><b>Fasilitator</b> — mengedit laporan & peserta sekolah yang dipegangnya; melihat & mengunduh semua laporan.</li>
-        <li><b>Pemantau</b> — hanya melihat & mengunduh laporan.</li></ul>
-        <p class="small muted">Sekolah dipegang fasilitator diatur di menu Data Sekolah (kolom “Fasilitator pemegang”).</p></div>
-      <div class="card"><h2>Daftar pengguna (${users.length})</h2><div style="overflow-x:auto"><table class="simple users"><thead><tr><th>Username</th><th>Nama lengkap (dengan gelar)</th><th>Peran</th><th>Aktif</th><th>Sekolah dipegang</th><th>Login terakhir</th><th></th></tr></thead><tbody>
+    app.innerHTML = pageHead('Kelola Pengguna', 'Akun fasilitator, admin, dan pemantau.') + `
+      <div class="card"><div class="card-h">${ic('users')}<h2>Daftar pengguna (${users.length})</h2></div>
+        <div class="tbwrap"><table class="tb users"><thead><tr><th>Username</th><th>Nama lengkap (dengan gelar)</th><th>NIP</th><th>Peran</th><th>Aktif</th><th>Sekolah binaan</th><th>Login terakhir</th><th></th></tr></thead><tbody>
         ${users.map(u => `<tr data-user="${esc(u.username)}"><td><b>${esc(u.username)}</b></td>
-          <td><input type="text" data-uf="nama" value="${esc(u.nama)}"></td>
+          <td><input type="text" data-uf="nama" value="${esc(u.nama)}" style="min-width:220px"></td>
+          <td><input type="text" data-uf="nip" value="${esc(u.nip)}" style="min-width:150px" inputmode="numeric"></td>
           <td><select data-uf="peran">${opts(['admin', 'fasilitator', 'pemantau'], u.peran, ['Admin', 'Fasilitator', 'Pemantau'])}</select></td>
           <td><input type="checkbox" data-uf="aktif"${u.aktif ? ' checked' : ''}></td>
           <td class="small">${esc(skOf(u).join(', ') || '-')}</td><td class="small muted">${u.terakhirLogin ? fmtWaktu(Date.parse(u.terakhirLogin)) : '-'}</td>
           <td style="white-space:nowrap"><button class="btn sm pri" data-act="user-save">Simpan</button> <button class="btn sm" data-act="user-reset">Reset sandi</button></td></tr>`).join('')}
         </tbody></table></div></div>
-      <div class="card"><h2>Tambah pengguna</h2><div class="grid2">
+      <div class="card"><div class="card-h">${ic('plus')}<h2>Tambah pengguna</h2></div><div class="grid2">
         <div><label class="f">Username</label><input type="text" id="nu-user" placeholder="mis. anton"></div>
         <div><label class="f">Nama lengkap dengan gelar</label><input type="text" id="nu-nama" placeholder="Anton Widiyatmoko, S.Pd., M.Pd."></div>
         <div><label class="f">Peran</label><select id="nu-peran">${opts(['fasilitator', 'pemantau', 'admin'], 'fasilitator', ['Fasilitator', 'Pemantau', 'Admin'])}</select></div>
         <div><label class="f">Password awal (min. 6 karakter)</label><input type="text" id="nu-pass" autocomplete="off"></div></div>
-        <button class="btn pri" data-act="user-add" style="margin-top:10px">Tambah pengguna</button>
-        <p class="small muted">Sampaikan username & password awal ke yang bersangkutan; ia bisa menggantinya sendiri di menu akun.</p></div>
-      ${usage ? `<div class="card"><h3>Penyimpanan Google Drive admin</h3><div class="bar big"><i style="width:${Math.min(100, pct)}%"></i></div>
-        <p class="small">${(usage.used / 1073741824).toFixed(2)} GB dari ${(usage.limit / 1073741824).toFixed(0)} GB terpakai (${pct}%) — termasuk Gmail & Google Photos akun admin.</p></div>` : ''}`;
+        <div class="row" style="margin-top:14px"><button class="btn pri" data-act="user-add">${ic('plus')}Tambah pengguna</button>
+        <span class="small muted">Sampaikan username & password awal ke yang bersangkutan; ia bisa menggantinya sendiri.</span></div></div>
+      <div class="grid2">
+        <div class="card"><div class="card-h">${ic('info')}<h3>Peran</h3></div><ul class="small" style="margin:0;padding-left:18px">
+          <li><b>Admin</b> — mengelola pengguna, pengaturan program, semua sekolah & laporan.</li>
+          <li><b>Fasilitator</b> — mendaftarkan & mengisi data sekolah binaannya (2 fasil per sekolah), mengisi laporannya; melihat & mengunduh semua laporan.</li>
+          <li><b>Pemantau</b> — hanya melihat & mengunduh.</li></ul></div>
+        ${usage ? `<div class="card"><div class="card-h">${ic('cloud')}<h3>Penyimpanan Google Drive admin</h3></div><div class="bar big"><i style="width:${Math.min(100, pct)}%"></i></div>
+          <p class="small" style="margin:10px 0 0">${(usage.used / 1073741824).toFixed(2)} GB dari ${(usage.limit / 1073741824).toFixed(0)} GB terpakai (${pct}%) — termasuk Gmail & Google Photos akun admin.</p></div>` : ''}
+      </div>`;
   }
 
   /* =========================================================
-   * AKUN SAYA
+   * PROFIL SAYA
    * ========================================================= */
   async function renderAkun() {
     const n = await Sync.count();
-    app.innerHTML = `<h1 class="pg">Akun Saya</h1>
-      <div class="card"><table class="simple"><tbody><tr><th style="width:140px">Nama</th><td>${esc(S.user.nama)}</td></tr>
-        <tr><th>Username</th><td>${esc(S.user.username)}</td></tr><tr><th>Peran</th><td>${PERAN[S.user.peran]}</td></tr>
-        <tr><th>Sinkronisasi</th><td>${n ? n + ' perubahan menunggu terkirim' : 'Semua perubahan sudah tersimpan di Drive'}</td></tr></tbody></table>
-        ${S.user.peran === 'admin' ? '' : '<p class="small muted">Nama lengkap & gelar diubah oleh admin.</p>'}</div>
-      <div class="card"><h2>Ganti password</h2><div class="grid2">
-        <div><label class="f">Password lama</label><input type="password" id="pw-old" autocomplete="current-password"></div>
-        <div><label class="f">Password baru (min. 6 karakter)</label><input type="password" id="pw-new" autocomplete="new-password"></div>
-        <div><label class="f">Ulangi password baru</label><input type="password" id="pw-new2" autocomplete="new-password"></div></div>
-        <button class="btn pri" data-act="pw-change" style="margin-top:10px">Simpan password</button>
-        <p class="small muted">Perangkat lain yang memakai akun ini akan otomatis keluar.</p></div>
-      <div class="card"><button class="btn danger" data-act="logout">Keluar</button>
-        <p class="small muted">Keluar juga menghapus salinan data di perangkat ini.</p></div>`;
+    const u = S.user;
+    const mine = S.sekolah.filter(s => inFasil(s, u.username));
+    app.innerHTML = pageHead('Profil Saya') + `
+      <div class="grid2">
+        <div class="card"><div class="row" style="gap:16px;margin-bottom:16px"><span class="avatar" style="padding:0"><span class="bubble" style="width:56px;height:56px;font-size:1.1rem">${esc(initials(u.nama))}</span></span>
+          <div><h2 style="margin:0">${esc(u.nama)}</h2><div class="small muted">${esc(u.username)} · ${PERAN[u.peran]}</div></div></div>
+          <label class="f">NIP (opsional — dicetak di bawah nama pada tanda tangan jurnal)</label>
+          <div class="row" style="flex-wrap:nowrap"><input type="text" id="pf-nip" value="${esc(u.nip)}" placeholder="mis. 19800101 200501 1 001" inputmode="numeric"><button class="btn pri" data-act="profil-save">Simpan</button></div>
+          <p class="tiny muted" style="margin:10px 0 0">Nama lengkap & gelar diubah oleh admin.</p>
+          ${mine.length ? `<div class="subhead">${ic('school')}<h4>Sekolah binaan</h4></div><div class="small">${mine.map(s => esc(s.nama)).join(' · ')}</div>` : ''}
+          <div class="subhead">${ic('cloud')}<h4>Sinkronisasi</h4></div><div class="small">${n ? n + ' perubahan menunggu terkirim ke Google Drive' : 'Semua perubahan sudah tersimpan di Google Drive.'}</div></div>
+        <div class="card" id="pw"><div class="card-h">${ic('lock')}<h2>Ganti password</h2></div>
+          <label class="f">Password lama</label><input type="password" id="pw-old" autocomplete="current-password">
+          <label class="f" style="margin-top:12px">Password baru (min. 6 karakter)</label><input type="password" id="pw-new" autocomplete="new-password">
+          <label class="f" style="margin-top:12px">Ulangi password baru</label><input type="password" id="pw-new2" autocomplete="new-password">
+          <button class="btn pri" data-act="pw-change" style="margin-top:16px">Simpan password</button>
+          <p class="tiny muted" style="margin:10px 0 0">Perangkat lain yang memakai akun ini akan otomatis keluar.</p></div>
+      </div>
+      <div class="card"><div class="row"><div><b>Keluar dari aplikasi</b><div class="small muted">Salinan data di perangkat ini juga dihapus.</div></div><span class="spacer"></span>
+        <button class="btn danger" data-act="logout">${ic('logout')}Keluar</button></div></div>`;
+    if (location.hash.endsWith('#pw')) { const el = document.getElementById('pw-old'); if (el) { el.scrollIntoView({ block: 'center' }); el.focus(); } }
   }
 
   /* =========================================================
    * EVENT
    * ========================================================= */
-  const EDIT_ACTS = new Set(['tempat-sekolah', 'hadir', 'hadir-all', 'hadir-none', 'add-peserta', 'imp-cancel', 'imp-apply', 'tes-del', 'akt-toggle', 'akt-del', 'akt-add', 'keg-reset', 'cap', 'obs-add', 'obs-del', 'teks-reset', 'chip', 'lamp-toggle', 'img-del', 'del-report', 'conf-server', 'conf-mine']);
+  const EDIT_ACTS = new Set(['tempat-sekolah', 'hadir', 'hadir-all', 'hadir-none', 'add-peserta', 'imp-cancel', 'imp-apply', 'tes-del', 'akt-toggle', 'akt-del', 'akt-add', 'keg-reset', 'cap', 'obs-add', 'obs-del', 'teks-reset', 'chip', 'lamp-toggle', 'img-del', 'del-report', 'conf-server', 'conf-mine', 'fh']);
 
   app.addEventListener('click', async e => {
     const cell = e.target.closest('[data-cell]');
@@ -1123,35 +1337,67 @@
     const editKeg = () => { if (!rep.kegiatan) rep.kegiatan = clone(R.kegiatan(rep)); return rep.kegiatan; };
     switch (act) {
       /* ---- data sekolah ---- */
-      case 'kop-del':
-        try { await API.call('uploadKop', { hapus: true }); S.program.kopId = ''; S.kopData = null; cacheBoot(); renderSekolah(); } catch (er) { toast(er.message, true); }
-        break;
-      case 'add-schools': {
-        const lines = document.getElementById('newSchools').value.split('\n').map(x => x.trim()).filter(Boolean);
+      case 'sk-new': S.adding = true; renderSekolah(); break;
+      case 'sk-cancel': S.adding = false; renderSekolah(); break;
+      case 'sk-add': {
+        const nama = document.getElementById('ns-nama').value.trim();
+        if (!nama) return toast('Isi nama sekolah.', true);
+        const f1 = document.getElementById('ns-f1'), f2 = document.getElementById('ns-f2').value;
+        const fasil = isAdmin() ? [f1 ? f1.value : '', f2].filter(Boolean) : [S.user.username, f2].filter(Boolean);
         b.disabled = true;
-        for (const n of lines) {
-          try { const r = await API.call('saveSekolah', { sekolah: { nama: n } }); S.sekolah.push(Object.assign(r, { peserta: [] })); }
-          catch (er) { toast(er.message, true, 4000); }
-        }
-        cacheBoot(); renderSekolah(); break;
+        try {
+          const r = await API.call('saveSekolah', { sekolah: { nama, fasil } });
+          S.sekolah.push(Object.assign(r, { peserta: [] })); S.adding = false; S.open.add(r.id); cacheBoot();
+          renderSekolah(); toast('Sekolah ' + r.nama + ' ditambahkan. Lengkapi kepala sekolah & data guru.', false, 4500);
+          const el = document.querySelector(`[data-sk-card="${r.id}"] [data-sk=ksNama]`); if (el) { el.scrollIntoView({ block: 'center' }); el.focus(); }
+        } catch (er) { toast(er.message, true, 7000); b.disabled = false; }
+        break;
       }
-      case 'del-school': {
+      case 'sk-del': {
         const sk = school(b.dataset.sid);
         const n = window.SILABUS.filter(p => statusOf(sk.id, p.no) !== 'kosong').length;
         if (!confirm(`Hapus ${sk.nama}${n ? ' beserta ' + n + ' laporannya' : ''}? Folder sekolah dipindah ke Sampah Google Drive.`)) return;
-        try { await API.call('deleteSekolah', { id: sk.id }); S.sekolah = S.sekolah.filter(x => x.id !== sk.id); cacheBoot(); renderSekolah(); } catch (er) { toast(er.message, true); }
+        try { await API.call('deleteSekolah', { id: sk.id }); S.sekolah = S.sekolah.filter(x => x.id !== sk.id); cacheBoot(); renderSekolah(); toast('Sekolah dihapus.'); } catch (er) { toast(er.message, true, 6000); }
         break;
       }
-      case 'toggle-peserta': S.openPeserta = S.openPeserta === b.dataset.sid ? null : b.dataset.sid; renderSekolah(); break;
+      case 'kop-del':
+        if (!confirm('Hapus gambar kop?')) return;
+        try { await API.call('uploadKop', { hapus: true }); S.program.kopId = ''; S.kopData = null; cacheBoot(); renderProgram(); } catch (er) { toast(er.message, true); }
+        break;
+      case 'paste-toggle': { const el = document.getElementById('paste-' + b.dataset.sid); el.style.display = el.style.display === 'none' ? 'block' : 'none'; break; }
       case 'paste-peserta': {
         const sk = school(b.dataset.sid);
         const n = addPesertaLines(sk, document.querySelector(`[data-paste="${sk.id}"]`).value);
-        markPeserta(sk.id); renderSekolah(); toast(n + ' peserta ditambahkan.'); break;
+        S.open.add(sk.id); markPeserta(sk.id); renderSekolah(); toast(n + ' guru ditambahkan.'); break;
+      }
+      case 'guru-add': {
+        const sk = school(b.dataset.sid);
+        const nm = document.getElementById('ng-nama-' + sk.id).value.trim();
+        if (!nm) return toast('Isi nama guru.', true);
+        const jab = document.getElementById('ng-jab-' + sk.id).value;
+        const kel = jab === 'Guru Kelas' ? document.getElementById('ng-kel-' + sk.id).value : '';
+        if ((sk.peserta || []).some(p => I.normName(p.nama) === I.normName(nm))) return toast('Nama ini sudah ada di daftar.', true);
+        sk.peserta = sk.peserta || []; sk.peserta.push({ id: R.uid(), nama: prettyName(nm), jabatan: jab, kelas: kel });
+        S.open.add(sk.id); markPeserta(sk.id); renderSekolah();
+        const el = document.getElementById('ng-nama-' + sk.id); if (el) el.focus();
+        break;
       }
       case 'del-peserta': {
         const sk = school(b.dataset.sid);
         sk.peserta = sk.peserta.filter(p => p.id !== b.dataset.id);
-        markPeserta(sk.id); renderSekolah(); break;
+        S.open.add(sk.id); markPeserta(sk.id); renderSekolah(); break;
+      }
+      case 'fh': {
+        const set = R.fasilHadir(rep, s);
+        const u = b.dataset.u;
+        const next = b.checked ? set.concat(set.some(x => eqU(x, u)) ? [] : [u]) : set.filter(x => !eqU(x, u));
+        rep.fasilHadir = fasilOf(s).filter(x => next.some(y => eqU(x, y)));
+        touch(); break;
+      }
+      case 'profil-save': {
+        try { const r = await API.call('saveProfile', { nip: document.getElementById('pf-nip').value }); S.user.nip = r.nip; const me = userBy(S.user.username); if (me) me.nip = r.nip; cacheBoot(); toast('Profil tersimpan.'); }
+        catch (er) { toast(er.message, true); }
+        break;
       }
       /* ---- editor ---- */
       case 'tempat-sekolah': rep.tempat = s.nama; document.querySelector('[data-r=tempat]').value = s.nama; touch(); updatePreviews(); break;
@@ -1239,7 +1485,7 @@
       /* ---- pengguna ---- */
       case 'user-save': {
         const tr = b.closest('tr');
-        const d = { username: tr.dataset.user, nama: tr.querySelector('[data-uf=nama]').value, peran: tr.querySelector('[data-uf=peran]').value, aktif: tr.querySelector('[data-uf=aktif]').checked };
+        const d = { username: tr.dataset.user, nama: tr.querySelector('[data-uf=nama]').value, nip: tr.querySelector('[data-uf=nip]').value, peran: tr.querySelector('[data-uf=peran]').value, aktif: tr.querySelector('[data-uf=aktif]').checked };
         try { await API.call('saveUser', { user: d }); toast('Tersimpan.'); renderPengguna(); } catch (er) { toast(er.message, true, 5000); }
         break;
       }
@@ -1271,9 +1517,15 @@
     const t = e.target, rep = S.cur;
     if (t.dataset.prog) { S.program[t.dataset.prog] = t.value; saveProgramDeb(); return; }
     if (t.dataset.sk && t.tagName === 'INPUT') {
-      const sk = school(t.dataset.sid);
-      if (t.dataset.sk === 'nama') sk.nama = t.value; else sk.alias = t.value.split(',').map(x => x.trim()).filter(Boolean);
-      if (sk.nama.trim()) saveSekolahDeb(sk.id); return;
+      const sk = school(t.dataset.sid); if (!canEdit(sk)) return;
+      sk[t.dataset.sk] = t.value;
+      if (t.dataset.sk === 'ksNama' && syncKs(sk)) markPeserta(sk.id);
+      saveSekolahDeb(sk.id); return;
+    }
+    if (t.dataset.pn) {
+      const [sid, pid] = t.dataset.pn.split('|'); const sk = school(sid); if (!canEdit(sk)) return;
+      const p = sk.peserta.find(x => x.id === pid); if (p) { p.nama = t.value; markPeserta(sid); }
+      return;
     }
     if (!rep || readOnly) return;
     if (t.dataset.r) { rep[t.dataset.r] = t.value; touch(); updatePreviews(); return; }
@@ -1291,14 +1543,21 @@
   app.addEventListener('change', async e => {
     const t = e.target, rep = S.cur;
     if (t.id === 'bulkNo' || t.id === 'bulkSk') return updateBulkInfo();
-    if (t.dataset.sk === 'fasil') { const sk = school(t.dataset.sid); sk.fasil = t.value; saveSekolahDeb(sk.id); return; }
+    if (t.dataset.fs) {
+      const sk = school(t.dataset.sid); if (!canEdit(sk)) return;
+      let f = fasilOf(sk).slice();
+      if (t.dataset.fs === 'partner') f = [S.user.username].concat(t.value ? [t.value] : []);
+      else { f[+t.dataset.fs] = t.value; f = f.filter(Boolean); }
+      sk.fasil = f.filter((x, i) => f.findIndex(y => eqU(x, y)) === i);
+      saveSekolahDeb(sk.id); cacheBoot(); return;
+    }
     if (t.dataset.act === 'kop' && t.files[0]) {
       try {
         toast('Mengunggah kop…', false, 1500);
         const data = await compressImage(t.files[0], 2400, 0.9, true);
         const r = await API.call('uploadKop', { b64: data.split(',')[1], mime: mimeOf(data), nama: 'kop' });
         S.program.kopId = r.kopId; const rec = { id: r.kopId, data }; S.imgCache.set(r.kopId, rec); await DB.put('images', rec);
-        cacheBoot(); renderSekolah();
+        cacheBoot(); renderProgram(); toast('Kop tersimpan.');
       } catch (er) { toast(er.message, true, 5000); }
       return;
     }
@@ -1308,7 +1567,7 @@
       const p = sk.peserta.find(x => x.id === pid);
       p[f] = t.value; if (f === 'jabatan' && t.value !== 'Guru Kelas') p.kelas = '';
       markPeserta(sid);
-      if (rep) { if (rep.no && R.groupKelas(rep.no)) touch(); rerenderStep(); } else renderSekolah();
+      if (rep) { if (rep.no && R.groupKelas(rep.no)) touch(); rerenderStep(); } else { S.open.add(sid); renderSekolah(); }
       return;
     }
     if (!rep || readOnly) return;

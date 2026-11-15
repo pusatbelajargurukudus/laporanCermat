@@ -193,6 +193,8 @@
     const L = rep.lampiran;
     const c = [];
     const add = (label, ok, wajib = true, step = 1) => c.push({ label, ok: !!ok, wajib, step });
+    add('Nama kepala sekolah (menu Data Sekolah)', school && (school.ksNama || '').trim(), true, 0);
+    add('Fasilitator yang hadir (minimal 1)', R.fasilHadir(rep, school).length > 0, true, 1);
     add('Tanggal pelaksanaan', rep.tanggal, true, 1);
     add('Tempat pelaksanaan', (rep.tempat || '').trim(), true, 1);
     add('Peserta hadir dicentang', (rep.hadir || []).length > 0, true, 2);
@@ -210,6 +212,13 @@
     const porto = Object.values(L.portofolio || {}).reduce((s, a) => s + a.length, 0);
     add('Portofolio tugas (opsional)', porto > 0, false, 5);
     return c;
+  };
+
+  /* Fasilitator yang hadir (username). Bawaan: semua fasil pemegang sekolah. */
+  R.fasilHadir = function (rep, school) {
+    const all = (school && school.fasil) || [];
+    if (!Array.isArray(rep.fasilHadir)) return all.slice();
+    return all.filter(u => rep.fasilHadir.some(x => String(x).toLowerCase() === String(u).toLowerCase()));
   };
 
   R.isComplete = (rep, school) => R.checklist(rep, school).every(x => x.ok || !x.wajib);
