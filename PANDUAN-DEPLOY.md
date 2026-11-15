@@ -1,4 +1,4 @@
-# Panduan Pemasangan LAPORAN CERMAT v2.1
+# Panduan Pemasangan LAPORAN CERMAT v2.2
 
 Aplikasi terdiri dari dua bagian:
 
@@ -35,7 +35,7 @@ Pemasangan cukup **sekali**, sekitar 15 menit.
    - Folder **LAPORAN CERMAT** dan spreadsheet **Database CERMAT** sekarang ada di Google Drive. Script Property `ADMIN_PASSWORD` **otomatis terhapus**, dan yang tersimpan hanya hash-nya.
 6. Klik **Deploy** → **New deployment**:
    - Klik ⚙ di samping *Select type* → **Web app**.
-   - **Description:** `v2.1`
+   - **Description:** `v2.2`
    - **Execute as:** **Me** (akun admin)
    - **Who has access:** **Anyone** (*bukan* "Anyone with Google account")
    - Klik **Deploy**, lalu salin **Web app URL** (berakhiran `/exec`).
@@ -64,34 +64,37 @@ Pemasangan cukup **sekali**, sekitar 15 menit.
 
 ## C. Penggunaan pertama
 
-**Admin** (klik lingkaran nama di pojok kanan atas):
-1. **Profil Saya → Ganti password.** Sangat disarankan, karena akun admin bisa mengubah dan menghapus semua laporan.
+**Admin** (menu: Kelola Pengguna · Data Sekolah · Lihat Laporan · Unduh Laporan):
+1. **Lingkaran nama → Profil Saya → Ganti password.** Sangat disarankan.
 2. **Kelola Pengguna:** tambahkan akun setiap fasilitator (username, nama lengkap bergelar, NIP opsional, peran, password awal), lalu sampaikan username dan password awal ke masing-masing.
-3. **Pengaturan Program:** unggah gambar **kop/logo berjajar** dan periksa nama program, penyelenggara, serta kota.
+3. **Data Sekolah → Tambah sekolah:** daftarkan setiap sekolah binaan dan pilih **Fasilitator 1 & 2**.
+4. **Lingkaran nama → Pengaturan Program:** unggah **kop/logo berjajar** dan periksa nama program, penyelenggara, serta kota.
 
-**Fasilitator:**
-1. **Data Sekolah → Tambah sekolah:** isi nama sekolah dan pilih rekan **Fasilitator 2**. Cukup salah satu fasil yang mendaftarkan; sekolahnya otomatis muncul juga di akun rekannya.
-2. Lengkapi **nama & NIP kepala sekolah** dan **data guru** (nama, jabatan, kelas).
-3. **Profil Saya:** isi NIP bila ingin dicetak di tanda tangan jurnal.
+**Fasilitator** (menu: Data Sekolah · Buat Laporan · Unduh Laporan):
+1. **Data Sekolah:** lengkapi **kepala sekolah (nama & gelar) + NIP** dan **data guru** sekolah binaan.
+2. **Profil Saya:** isi NIP bila ingin dicetak di tanda tangan jurnal.
+3. **Buat Laporan:** Pelaksanaan → Pretes & Kehadiran → Postes & Capaian → Evaluasi → Lampiran → Periksa & Unduh.
+   - File Google Form **pretes + postes boleh satu file**. Pretes terbaca di langkah 2, postes otomatis tampil di langkah 3.
+   - Kalau file diunduh sebelum postes dikerjakan, unggah file terbaru di langkah 3.
 
 ### Peran
 
-| Peran | Lihat & unduh | Data sekolah & guru | Laporan | Pengguna & pengaturan program |
+| Peran | Data sekolah | Laporan | Lihat & unduh | Pengguna & program |
 |---|---|---|---|---|
-| Admin | semua | semua sekolah | semua | ✓ |
-| Fasilitator | semua | sekolah binaannya (2 fasil per sekolah, hak setara) | sekolah binaannya | – |
-| Pemantau | semua | lihat | lihat | – |
+| Admin | tambah/hapus sekolah, atur Fasil 1 & 2 (juga bisa mengisi KS & guru) | **hanya melihat** (+ hapus darurat) | semua | ✓ |
+| Fasilitator | kepala sekolah + NIP & data guru sekolah binaannya | mengisi laporan sekolah binaannya | semua | – |
+| Pemantau | lihat | lihat | semua | – |
 
 ---
 
-## C2. Upgrade dari v2 ke v2.1 (kalau sebelumnya sudah memasang v2)
+## C2. Upgrade dari versi sebelumnya (v2 / v2.1)
 
 1. Di Apps Script, ganti seluruh isi `Code.gs` dengan file baru → **Ctrl+S**.
 2. **Deploy → Manage deployments** → ✏ → *Version*: **New version** → **Deploy**. URL tetap sama.
 3. Di GitHub, unggah semua file baru **kecuali `js/config.js`**. Biarkan `config.js` lama yang sudah berisi URL Anda.
 4. Buka aplikasi dan tekan **Ctrl+Shift+R** sekali.
 
-Kolom baru di Sheets (`ksNama`, `ksNip`, `nip`) ditambahkan otomatis saat server pertama kali dipanggil, dan data lama tidak berubah. Setelah upgrade, isi kepala sekolah di setiap sekolah, karena namanya sekarang wajib untuk tanda tangan jurnal.
+Data lama tetap aman. Kolom baru di Sheets ditambahkan otomatis.
 
 ---
 

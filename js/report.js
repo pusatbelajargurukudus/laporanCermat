@@ -59,8 +59,8 @@
 
   R.jabatanLabel = p => p.jabatan === 'Guru Kelas' && p.kelas ? 'Guru Kelas ' + p.kelas : (p.jabatan || '');
 
+  /* Langkah pelaksanaan selalu persis sesuai silabus. */
   R.kegiatan = function (rep) {
-    if (rep.kegiatan) return rep.kegiatan;
     return R.sil(rep.no).kegiatan.map(k => ({
       sesi: k.sesi, bagian: k.bagian, waktu: k.waktu, catatan: '',
       aktivitas: k.aktivitas.map(t => ({ teks: t, aktif: true }))
@@ -196,13 +196,13 @@
     add('Nama kepala sekolah (menu Data Sekolah)', school && (school.ksNama || '').trim(), true, 0);
     add('Fasilitator yang hadir (minimal 1)', R.fasilHadir(rep, school).length > 0, true, 1);
     add('Tanggal pelaksanaan', rep.tanggal, true, 1);
-    add('Tempat pelaksanaan', (rep.tempat || '').trim(), true, 1);
-    add('Peserta hadir dicentang', (rep.hadir || []).length > 0, true, 2);
+    add('Tempat pelaksanaan', (rep.tempat || '').trim() || (school && school.nama), true, 1);
     if (R.hasTes(rep.no)) {
       const st = R.stats(rep);
       add('Nilai pretes diimpor', st && st.preN > 0, true, 2);
-      add('Nilai postes diimpor', st && st.postN > 0, true, 2);
     }
+    add('Peserta hadir dicentang', (rep.hadir || []).length > 0, true, 2);
+    if (R.hasTes(rep.no)) { const st2 = R.stats(rep); add('Nilai postes diimpor', st2 && st2.postN > 0, true, 3); }
     if (R.isObservasi(rep.no)) add('Hasil observasi & coaching (minimal 1 guru)', (rep.observasi || []).some(o => (o.guru || '').trim()), true, 3);
     add('Permasalahan yang ditemui', (rep.permasalahan || '').trim(), true, 4);
     add('Rekomendasi fasilitator', (rep.rekomendasi || '').trim(), true, 4);

@@ -12,8 +12,8 @@
   const S = {
     user: null, program: {}, sekolah: [], pengguna: [], rekap: new Map(),
     local: new Map(),            // key -> { status, dirty } dari salinan lokal
-    pesertaDirty: new Set(), delQueue: [],
-    cur: null, step: 1, imp: null, showAll: false, open: new Set(), adding: false,
+    pesertaDirty: new Set(), skDirty: new Set(), delQueue: [],
+    cur: null, step: 1, imp: null, impMode: 'pre', showAll: false, cal: null, open: new Set(), adding: false,
     imgCache: new Map(), kopData: null, lastRekap: 0
   };
 
@@ -73,8 +73,11 @@
   const fasilNama = s => fasilOf(s).map(namaUser).join(' & ');
   const inFasil = (s, u) => fasilOf(s).some(x => eqU(x, u));
   const isAdmin = () => S.user && S.user.peran === 'admin';
-  const canEdit = s => !!(S.user && s && (S.user.peran === 'admin' || (S.user.peran === 'fasilitator' && inFasil(s, S.user.username))));
-  const fasilUsers = () => S.pengguna.filter(u => u.aktif && u.peran !== 'pemantau');
+  const canEdit = s => !!(S.user && s && (S.user.peran === 'admin' || (S.user.peran === 'fasilitator' && inFasil(s, S.user.username))));   // data sekolah
+  const canFill = s => !!(S.user && s && S.user.peran === 'fasilitator' && inFasil(s, S.user.username));   // isi laporan
+  const homeHash = () => S.user && S.user.peran === 'fasilitator' ? '#/buat' : '#/lihat';
+  const listHash = sid => (S.user && S.user.peran === 'fasilitator' ? '#/buat/' : '#/lihat/') + sid;
+  const fasilUsers = () => S.pengguna.filter(u => u.aktif && u.peran === 'fasilitator');
   const clone = o => JSON.parse(JSON.stringify(o));
   const mimeOf = d => (d.match(/^data:([^;]+);/) || [])[1] || 'image/jpeg';
   function saveBlob(blob, name) {
@@ -152,12 +155,17 @@
 
   function applyBoot(b) {
     const prev = new Map(S.sekolah.map(s => [s.id, s.peserta]));
+    const prevSk = new Map(S.sekolah.map(s => [s.id, s]));
     S.user = b.user; S.program = b.program || {}; S.pengguna = b.pengguna || [];
     S.sekolah = (b.sekolah || []).map(s => Object.assign({}, s, {
       fasil: fasilOf(s),
       peserta: S.pesertaDirty.has(s.id) && prev.get(s.id) ? prev.get(s.id) : (b.peserta || []).filter(p => p.sekolahId === s.id).map(p => ({ id: p.id, nama: p.nama, jabatan: p.jabatan, kelas: p.kelas }))
     }));
-    S.sekolah.forEach(s => { if (syncKs(s) && canEdit(s)) S.pesertaDirty.add(s.id); });
+    S.sekolah.forEach(s => {
+      const old = prevSk.get(s.id);   // isian yang belum sempat tersimpan tidak boleh tertimpa
+      if (old && S.skDirty.has(s.id)) ['nama', 'ksNama', 'ksNip', 'fasil', 'alias'].forEach(k => { s[k] = old[k]; });
+      if (syncKs(s) && canEdit(s)) S.pesertaDirty.add(s.id);
+    });
     S.rekap = new Map((b.rekap || []).map(r => [r.key, r]));
   }
 
@@ -178,11 +186,13 @@
   const doneOf = sid => window.SILABUS.filter(p => statusOf(sid, p.no) === 'lengkap').length;
   const hasReports = sid => window.SILABUS.some(p => statusOf(sid, p.no) !== 'kosong');
 
+  /* Perbarui data dari Drive (sekolah, kepala sekolah, guru, pengguna, status laporan) — satu panggilan. */
   async function refreshRekap(force) {
-    if (!force && Date.now() - S.lastRekap < 20000) return false;
+    if (Date.now() - S.lastRekap < (force ? 5000 : 20000)) return false;
     try {
-      const list = await API.call('rekap');
-      S.rekap = new Map(list.map(r => [r.key, r])); S.lastRekap = Date.now(); cacheBoot();
+      S.lastRekap = Date.now();
+      const b = await API.call('bootstrap');
+      applyBoot(b); await kvSet('boot', b); cacheBoot();
       return true;
     } catch (e) { return false; }
   }
@@ -431,7 +441,7 @@
     await loadLocalStatus();
     document.body.classList.remove('auth');
     setNav();
-    if (!location.hash || location.hash === '#/' || location.hash === '#/login') location.hash = S.user.peran === 'pemantau' ? '#/unduh' : '#/buat';
+    if (!location.hash || location.hash === '#/' || location.hash === '#/login') location.hash = homeHash();
     route();
     Sync.run();
   }
@@ -457,10 +467,9 @@
    * ========================================================= */
   function navItems() {
     const u = S.user; if (!u) return [];
-    const items = [['sekolah', 'Data Sekolah', 'school']];
-    if (u.peran !== 'pemantau') items.push(['buat', 'Buat Laporan', 'edit']);
-    items.push(['unduh', 'Unduh Laporan', 'download']);
-    return items;
+    if (u.peran === 'admin') return [['pengguna', 'Kelola Pengguna', 'users'], ['sekolah', 'Data Sekolah', 'school'], ['lihat', 'Lihat Laporan', 'eye'], ['unduh', 'Unduh Laporan', 'download']];
+    if (u.peran === 'fasilitator') return [['sekolah', 'Data Sekolah', 'school'], ['buat', 'Buat Laporan', 'edit'], ['unduh', 'Unduh Laporan', 'download']];
+    return [['sekolah', 'Data Sekolah', 'school'], ['lihat', 'Lihat Laporan', 'eye'], ['unduh', 'Unduh Laporan', 'download']];
   }
   function setNav() {
     const nav = document.getElementById('nav'), usr = document.getElementById('usr'), tab = document.getElementById('tabbar');
@@ -468,7 +477,7 @@
     if (!u) { nav.innerHTML = ''; usr.innerHTML = ''; tab.innerHTML = ''; return; }
     const items = navItems();
     nav.innerHTML = items.map(([k, l, i]) => `<a href="#/${k}" data-nav="${k}">${ic(i)}<span>${l}</span></a>`).join('');
-    tab.innerHTML = items.map(([k, l, i]) => `<a href="#/${k}" data-nav="${k}">${ic(i, 'lg')}<span>${l.replace(' Laporan', '')}</span></a>`).join('');
+    tab.innerHTML = items.map(([k, l, i]) => `<a href="#/${k}" data-nav="${k}">${ic(i, 'lg')}<span>${l.replace(' Laporan', '').replace('Kelola ', '')}</span></a>`).join('');
     usr.innerHTML = `<button class="avatar" id="avbtn" data-menu="1" aria-haspopup="true">
         <span class="nm"><b>${esc(u.nama.split(',')[0])}</b><span>${PERAN[u.peran]}</span></span>
         <span class="bubble">${esc(initials(u.nama))}<span class="sd ok"></span></span></button>
@@ -476,7 +485,7 @@
         <div class="mhd"><b>${esc(u.nama)}</b><span>${esc(u.username)} · ${PERAN[u.peran]}</span></div>
         <div class="sync"><span class="sd ok"></span><span id="syncind">Tersinkron dengan Google Drive</span></div>
         <div class="sep"></div>
-        ${u.peran === 'admin' ? `<a href="#/pengguna">${ic('users')}Kelola Pengguna</a><a href="#/program">${ic('settings')}Pengaturan Program</a><div class="sep"></div>` : ''}
+        ${u.peran === 'admin' ? `<a href="#/program">${ic('settings')}Pengaturan Program</a><div class="sep"></div>` : ''}
         <a href="#/akun">${ic('user')}Profil Saya</a>
         <a href="#/akun#pw">${ic('lock')}Ganti Password</a>
         <div class="sep"></div>
@@ -497,20 +506,21 @@
     document.body.classList.remove('auth');
     const h = location.hash.replace(/^#\/?/, '');
     const parts = h.split(/[/#]/);
-    const top = parts[0] === 'laporan' ? 'buat' : parts[0];
+    const top = parts[0] === 'laporan' ? (S.user.peran === 'fasilitator' ? 'buat' : 'lihat') : parts[0];
     document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('on', a.dataset.nav === top));
     document.body.classList.toggle('editing', parts[0] === 'laporan');
     window.scrollTo(0, 0);
     if (parts[0] !== 'laporan') { await flushCur(); S.cur = null; }
     switch (parts[0]) {
-      case 'sekolah': return renderSekolah();
-      case 'buat': return parts[1] ? renderPilihP(parts[1]) : renderBuat();
+      case 'sekolah': renderSekolah(); if (await refreshRekap()) { if (location.hash === '#/sekolah' && !document.activeElement.matches('input,textarea,select')) renderSekolah(); } return;
+      case 'buat': return S.user.peran !== 'fasilitator' ? (location.hash = '#/lihat') : parts[1] ? renderPilihP(parts[1]) : renderBuat();
+      case 'lihat': return parts[1] ? renderPilihP(parts[1]) : renderLihat();
       case 'laporan': return openReport(parts[1], parseInt(parts[2], 10), parseInt(parts[3] || '1', 10));
       case 'unduh': return renderUnduh();
-      case 'pengguna': return isAdmin() ? renderPengguna() : (location.hash = '#/buat');
-      case 'program': return isAdmin() ? renderProgram() : (location.hash = '#/buat');
+      case 'pengguna': return isAdmin() ? renderPengguna() : (location.hash = homeHash());
+      case 'program': return isAdmin() ? renderProgram() : (location.hash = homeHash());
       case 'akun': return renderAkun();
-      default: location.hash = S.user.peran === 'pemantau' ? '#/unduh' : '#/buat';
+      default: location.hash = homeHash();
     }
   }
 
@@ -525,23 +535,23 @@
 
   function renderSekolah() {
     const u = S.user, adm = isAdmin();
-    const mine = S.sekolah.filter(s => canEdit(s));
-    const other = S.sekolah.filter(s => !canEdit(s));
-    const canAdd = u.peran !== 'pemantau';
-    let h = pageHead('Data Sekolah', adm ? 'Semua sekolah binaan program, fasilitator pemegang, kepala sekolah, dan data guru.' :
-      u.peran === 'fasilitator' ? 'Isi data sekolah binaan Anda: kepala sekolah dan daftar guru. Data ini dipakai otomatis di laporan.' : 'Daftar sekolah binaan program.',
-    canAdd ? `<button class="btn pri" data-act="sk-new">${ic('plus')}Tambah sekolah</button>` : '');
-    if (S.adding) h += addSchoolForm();
-    if (canAdd) {
+    const mine = adm ? S.sekolah : S.sekolah.filter(s => canEdit(s));
+    const other = adm ? [] : S.sekolah.filter(s => !canEdit(s));
+    const sub = adm ? 'Daftarkan sekolah binaan dan pasangkan Fasilitator 1 & 2. Kepala sekolah & data guru dilengkapi oleh fasilitator.'
+      : u.peran === 'fasilitator' ? 'Lengkapi kepala sekolah dan data guru sekolah binaan Anda. Data ini dipakai otomatis di laporan.' : 'Daftar sekolah binaan program.';
+    let h = pageHead('Data Sekolah', sub, adm ? `<button class="btn pri" data-act="sk-new">${ic('plus')}Tambah sekolah</button>` : '');
+    if (adm && S.adding) h += addSchoolForm();
+    if (u.peran !== 'pemantau') {
       if (!adm) h += `<div class="sec"><h2>Sekolah binaan saya</h2></div>`;
       h += mine.length ? mine.map(s => sekolahCard(s)).join('') :
-        emptyState('school', 'Belum ada sekolah binaan', 'Tambahkan sekolah yang Anda dampingi. Jika rekan fasilitator sudah mendaftarkannya, minta ia memilih Anda sebagai Fasilitator 2.',
-          S.adding ? '' : `<button class="btn pri" data-act="sk-new">${ic('plus')}Tambah sekolah pertama</button>`);
+        adm ? (S.adding ? '' : emptyState('school', 'Belum ada sekolah binaan', 'Tambahkan sekolah binaan program, lalu pasangkan fasilitatornya.', `<button class="btn pri" data-act="sk-new">${ic('plus')}Tambah sekolah pertama</button>`))
+          : emptyState('school', 'Anda belum ditugaskan ke sekolah', 'Admin mendaftarkan sekolah binaan dan memasangkan fasilitatornya. Hubungi admin program.');
     }
-    if (other.length) {
-      h += `<div class="sec"><h2>${canAdd ? 'Sekolah fasilitator lain' : 'Sekolah binaan'}</h2></div>
+    const list = u.peran === 'pemantau' ? S.sekolah : other;
+    if (list.length) {
+      h += `<div class="sec"><h2>${u.peran === 'pemantau' ? 'Sekolah binaan' : 'Sekolah fasilitator lain'}</h2></div>
         <div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table class="tb"><thead><tr><th>Sekolah</th><th>Kepala sekolah</th><th>Fasilitator</th><th>Guru</th><th>Laporan</th></tr></thead><tbody>
-        ${other.map(s => `<tr><td><b>${esc(s.nama)}</b></td><td>${esc(s.ksNama || '-')}</td><td>${esc(fasilNama(s) || '-')}</td>
+        ${list.map(s => `<tr><td><b>${esc(s.nama)}</b></td><td>${esc(s.ksNama || '-')}</td><td>${esc(fasilNama(s) || '-')}</td>
           <td>${(s.peserta || []).filter(p => p.id !== 'ks_' + s.id).length}</td><td><span class="pill ${doneOf(s.id) === 22 ? 'lengkap' : doneOf(s.id) ? 'draf' : 'kosong'}">${doneOf(s.id)}/22</span></td></tr>`).join('')}
         </tbody></table></div></div>`;
     }
@@ -550,60 +560,54 @@
   }
 
   function addSchoolForm() {
-    const adm = isAdmin();
-    const others = fasilUsers().filter(u => !eqU(u.username, S.user.username));
+    const cand = fasilUsers();
     const lbl = u => u.nama + ' (' + u.username + ')';
-    return `<div class="card" style="border-color:var(--navy-line)"><div class="card-h"><h3>Tambah sekolah binaan</h3><span class="spacer"></span><button class="btn sm ghost" data-act="sk-cancel">${ic('x')}Batal</button></div>
-      <div class="grid3">
+    const sel = (id, empty) => `<select id="${id}">${opts([''].concat(cand.map(u => u.username)), '', [empty].concat(cand.map(lbl)))}</select>`;
+    return `<div class="card" style="border-color:var(--navy-line)"><div class="card-h">${ic('plus')}<h3>Tambah sekolah binaan</h3><span class="spacer"></span><button class="btn sm ghost" data-act="sk-cancel">${ic('x')}Batal</button></div>
+      <div class="fields">
         <div><label class="f">Nama sekolah *</label><input type="text" id="ns-nama" placeholder="mis. SD 3 Terban"></div>
-        ${adm ? `<div><label class="f">Fasilitator 1</label><select id="ns-f1">${opts([''].concat(fasilUsers().map(u => u.username)), '', ['— pilih —'].concat(fasilUsers().map(lbl)))}</select></div>`
-        : `<div><label class="f">Fasilitator 1</label><input type="text" value="${esc(S.user.nama)} (Anda)" disabled></div>`}
-        <div><label class="f">Fasilitator 2 (rekan)</label><select id="ns-f2">${opts([''].concat((adm ? fasilUsers() : others).map(u => u.username)), '', ['— belum ada —'].concat((adm ? fasilUsers() : others).map(lbl)))}</select></div>
+        <div><label class="f">Fasilitator 1</label>${sel('ns-f1', '— pilih —')}</div>
+        <div><label class="f">Fasilitator 2</label>${sel('ns-f2', '— belum ada —')}</div>
       </div>
-      <div class="row" style="margin-top:14px"><button class="btn pri" data-act="sk-add">${ic('check')}Simpan sekolah</button>
-      <span class="small muted">Kepala sekolah & data guru diisi setelah sekolah tersimpan.</span></div></div>`;
+      ${cand.length ? '' : `<p class="small muted">Belum ada akun fasilitator. Tambahkan dulu di <a href="#/pengguna">Kelola Pengguna</a>.</p>`}
+      <div class="row" style="margin-top:14px"><button class="btn pri" data-act="sk-add">${ic('check')}Simpan sekolah</button></div></div>`;
   }
 
   function sekolahCard(s) {
     const adm = isAdmin();
-    const me = S.user.username;
-    const isMine = inFasil(s, me);
+    const isMine = inFasil(s, S.user.username);
     const guru = R.sortPeserta((s.peserta || []).filter(p => p.id !== 'ks_' + s.id));
     const done = doneOf(s.id);
-    const open = S.open.has(s.id) || (S.sekolah.filter(x => canEdit(x)).length === 1);
+    const open = S.open.has(s.id) || (!adm && S.sekolah.filter(x => canEdit(x)).length <= 2);
     const f = fasilOf(s);
     const cand = fasilUsers();
     const lbl = u => u.nama + ' (' + u.username + ')';
-    let fasilField;
-    if (adm) {
-      fasilField = [0, 1].map(i => `<div><label class="f">Fasilitator ${i + 1}</label><select data-fs="${i}" data-sid="${s.id}">${opts([''].concat(cand.map(u => u.username)), f[i] || '', [i ? '— belum ada —' : '— pilih —'].concat(cand.map(lbl)))}</select></div>`).join('');
-    } else {
-      const partner = f.find(x => !eqU(x, me)) || '';
-      const others = cand.filter(u => !eqU(u.username, me));
-      fasilField = `<div><label class="f">Fasilitator 1</label><input type="text" value="${esc(S.user.nama)} (Anda)" disabled></div>
-        <div><label class="f">Fasilitator 2 (rekan)</label><select data-fs="partner" data-sid="${s.id}">${opts([''].concat(others.map(u => u.username)), partner, ['— belum ada —'].concat(others.map(lbl)))}</select></div>`;
-    }
-    const canDel = adm || (isMine && !hasReports(s.id));
+    const fasilField = adm
+      ? [0, 1].map(i => `<div><label class="f">Fasilitator ${i + 1}</label><select data-fs="${i}" data-sid="${s.id}">${opts([''].concat(cand.map(u => u.username)), f[i] || '', [i ? '— belum ada —' : '— pilih —'].concat(cand.map(lbl)))}</select></div>`).join('')
+      : [0, 1].map(i => `<div><label class="f">Fasilitator ${i + 1}</label><div class="ro-val">${esc(f[i] ? namaUser(f[i]) : '—')}${f[i] && eqU(f[i], S.user.username) ? ' <span class="pill gold">Anda</span>' : ''}</div></div>`).join('');
     return `<details class="card skc${isMine ? ' mine' : ''}" data-sk-card="${s.id}"${open ? ' open' : ''}>
       <summary>${ring(done, 22, 54)}
         <div class="ttl"><h3>${esc(s.nama)}</h3><div class="meta"><span>${ic('user')} ${esc(s.ksNama || 'Kepala sekolah belum diisi')}</span><span>${ic('users')} ${guru.length} guru</span></div>
         <div style="margin-top:6px">${fasilChips(s)}</div></div>
         ${!s.ksNama ? '<span class="pill draf">Lengkapi data</span>' : ''}${ic('chevron', 'lg chev')}</summary>
       <div class="body">
-        <div class="grid3">
-          <div><label class="f">Nama sekolah</label><input type="text" data-sk="nama" data-sid="${s.id}" value="${esc(s.nama)}"></div>
-          <div><label class="f">Nama kepala sekolah (dengan gelar)</label><input type="text" data-sk="ksNama" data-sid="${s.id}" value="${esc(s.ksNama)}" placeholder="mis. Siti Aminah, S.Pd."></div>
-          <div><label class="f">NIP kepala sekolah</label><input type="text" data-sk="ksNip" data-sid="${s.id}" value="${esc(s.ksNip)}" placeholder="mis. 19750312 200012 2 003" inputmode="numeric"></div>
+        <div class="fields">
+          ${adm ? `<div><label class="f">Nama sekolah</label><input type="text" data-sk="nama" data-sid="${s.id}" value="${esc(s.nama)}"></div>`
+                : `<div><label class="f">Nama sekolah</label><div class="ro-val">${esc(s.nama)}</div></div>`}
           ${fasilField}
+        </div>
+        <div class="fields two" style="margin-top:14px">
+          <div><label class="f">Kepala sekolah (nama & gelar)</label><input type="text" data-sk="ksNama" data-sid="${s.id}" value="${esc(s.ksNama)}" placeholder="mis. Siti Aminah, S.Pd."></div>
+          <div><label class="f">NIP kepala sekolah</label><input type="text" data-sk="ksNip" data-sid="${s.id}" value="${esc(s.ksNip)}" placeholder="mis. 19750312 200012 2 003" inputmode="numeric"></div>
         </div>
         <div class="subhead">${ic('users')}<h4>Data guru (${guru.length})</h4><span class="spacer"></span>
           <button class="btn sm ghost" data-act="paste-toggle" data-sid="${s.id}">Tempel daftar sekaligus</button></div>
-        ${guru.length ? `<div class="tbwrap"><table class="tb"><thead><tr><th style="width:44%">Nama</th><th>Jabatan</th><th style="width:90px">Kelas</th><th style="width:44px"></th></tr></thead><tbody>
+        ${guru.length ? `<div class="tbwrap"><table class="tb"><thead><tr><th style="width:46%">Nama (dengan gelar)</th><th>Jabatan</th><th style="width:96px">Kelas</th><th style="width:44px"></th></tr></thead><tbody>
           ${guru.map(p => `<tr><td><input type="text" data-pn="${s.id}|${p.id}" value="${esc(p.nama)}"></td>
             <td><select data-pj="${s.id}|${p.id}|jabatan">${opts(JABATAN, p.jabatan, ['— jabatan —'].concat(JABATAN.slice(1)))}</select></td>
             <td><select data-pj="${s.id}|${p.id}|kelas"${p.jabatan === 'Guru Kelas' ? '' : ' disabled'}>${opts(KELAS, p.kelas, ['–', '1', '2', '3', '4', '5', '6'])}</select></td>
             <td><button class="iconbtn" data-act="del-peserta" data-sid="${s.id}" data-id="${p.id}" title="Hapus">${ic('trash')}</button></td></tr>`).join('')}
-          </tbody></table></div>` : '<p class="small muted" style="margin:0 0 6px">Belum ada guru. Tambahkan di bawah, tempel daftar, atau impor nilai pretes — nama guru terbentuk otomatis.</p>'}
+          </tbody></table></div>` : '<p class="small muted" style="margin:0 0 6px">Belum ada guru. Tambahkan di bawah, tempel daftar, atau unggah pretes — nama guru terbentuk otomatis.</p>'}
         <div class="addrow"><input type="text" id="ng-nama-${s.id}" placeholder="Nama guru (dengan gelar)">
           <select id="ng-jab-${s.id}">${opts(JABATAN_GURU, 'Guru Kelas')}</select>
           <select id="ng-kel-${s.id}">${opts(KELAS, '', ['kelas', '1', '2', '3', '4', '5', '6'])}</select>
@@ -611,8 +615,8 @@
         <div id="paste-${s.id}" style="display:none;margin-top:12px"><label class="f">Satu guru per baris: <i>Nama, Jabatan/Kelas</i></label>
           <textarea data-paste="${s.id}" placeholder="Budi Santoso, S.Pd., Guru Kelas 3&#10;Rina Wati, Guru PAI&#10;Agus, Tenaga Kependidikan" style="min-height:90px"></textarea>
           <button class="btn sm pri" data-act="paste-peserta" data-sid="${s.id}" style="margin-top:8px">Tambahkan ke daftar</button></div>
-        <div class="row" style="margin-top:20px"><a class="btn" href="#/buat/${s.id}">${ic('file')}Buka 22 laporan</a><span class="spacer"></span>
-          ${canDel ? `<button class="btn danger" data-act="sk-del" data-sid="${s.id}">${ic('trash')}Hapus sekolah</button>` : ''}</div>
+        <div class="row" style="margin-top:20px"><a class="btn" href="${listHash(s.id)}">${ic('file')}${canFill(s) ? 'Buka 22 laporan' : 'Lihat 22 laporan'}</a><span class="spacer"></span>
+          ${adm ? `<button class="btn danger" data-act="sk-del" data-sid="${s.id}">${ic('trash')}Hapus sekolah</button>` : ''}</div>
       </div></details>`;
   }
 
@@ -638,13 +642,15 @@
     return n;
   }
 
-  const saveSekolahDeb = debounceBy(async sid => {
-    const s = school(sid); if (!s || !s.nama.trim()) return;
+  const saveSekolahNow = debounceBy(async sid => {
+    const s = school(sid); if (!s || !s.nama.trim()) { S.skDirty.delete(sid); return; }
     try {
       const r = await API.call('saveSekolah', { sekolah: { id: s.id, nama: s.nama, alias: s.alias, fasil: fasilOf(s), ksNama: s.ksNama, ksNip: s.ksNip, urutan: s.urutan } });
       Object.assign(s, { fasil: r.fasil, alias: r.alias }); cacheBoot();
     } catch (e) { toast(e.message, true, 6000); }
+    S.skDirty.delete(sid);
   }, 700);
+  const saveSekolahDeb = sid => { S.skDirty.add(sid); saveSekolahNow(sid); };
 
   /* =========================================================
    * PENGATURAN PROGRAM (admin)
@@ -678,19 +684,19 @@
    * ========================================================= */
   async function renderBuat() {
     const draw = () => {
-      const mine = S.sekolah.filter(s => canEdit(s));
-      const other = S.sekolah.filter(s => !canEdit(s));
+      const mine = S.sekolah.filter(s => canFill(s));
+      const other = S.sekolah.filter(s => !canFill(s));
       const card = s => {
         const st = window.SILABUS.map(p => statusOf(s.id, p.no));
         const l = st.filter(x => x === 'lengkap').length, d = st.filter(x => x === 'draf').length;
-        return `<a class="pick${canEdit(s) ? '' : ' ro'}" href="#/buat/${s.id}">${ring(l, 22, 58)}
+        return `<a class="pick${canFill(s) ? '' : ' ro'}" href="#/buat/${s.id}">${ring(l, 22, 58)}
           <div style="min-width:0;flex:1"><h3>${esc(s.nama)}</h3><div class="meta">${esc(fasilNama(s) || 'Fasilitator belum ditentukan')}</div>
-          <div class="meta" style="margin-top:6px">${d ? `<span class="pill draf">${d} draf</span> ` : ''}${canEdit(s) ? '' : '<span class="pill kosong">hanya baca</span>'}</div></div>${ic('arrowR')}</a>`;
+          <div class="meta" style="margin-top:6px">${d ? `<span class="pill draf">${d} draf</span> ` : ''}${canFill(s) ? '' : '<span class="pill kosong">hanya baca</span>'}</div></div>${ic('arrowR')}</a>`;
       };
       let h = pageHead('Buat Laporan', 'Pilih sekolah, lalu pendampingan yang akan dilaporkan.');
-      if (!S.sekolah.length) h += emptyState('school', 'Belum ada sekolah binaan', 'Tambahkan dulu di menu Data Sekolah.', `<a class="btn pri" href="#/sekolah">${ic('plus')}Tambah sekolah</a>`);
-      if (mine.length) h += `<div class="sec"><h2>${isAdmin() ? 'Semua sekolah' : 'Sekolah binaan saya'}</h2></div><div class="picks">${mine.map(card).join('')}</div>`;
-      else if (S.user.peran === 'fasilitator' && S.sekolah.length) h += emptyState('school', 'Anda belum memegang sekolah', 'Tambahkan sekolah binaan Anda di menu Data Sekolah.', `<a class="btn pri" href="#/sekolah">${ic('plus')}Tambah sekolah</a>`);
+      if (!S.sekolah.length) h += emptyState('school', 'Belum ada sekolah binaan', 'Admin belum mendaftarkan sekolah binaan.');
+      if (mine.length) h += `<div class="sec"><h2>Sekolah binaan saya</h2></div><div class="picks">${mine.map(card).join('')}</div>`;
+      else if (S.sekolah.length) h += emptyState('school', 'Anda belum ditugaskan ke sekolah', 'Admin mendaftarkan sekolah binaan dan memasangkan fasilitatornya. Hubungi admin program.');
       if (other.length) h += `<div class="sec"><h2>Sekolah lain · hanya baca</h2></div><div class="picks">${other.map(card).join('')}</div>`;
       app.innerHTML = h;
     };
@@ -700,13 +706,13 @@
 
   async function renderPilihP(sid) {
     const s = school(sid);
-    if (!s) { app.innerHTML = emptyState('alert', 'Sekolah tidak ditemukan', '', '<a class="btn" href="#/buat">Kembali</a>'); return; }
+    if (!s) { app.innerHTML = emptyState('alert', 'Sekolah tidak ditemukan', '', `<a class="btn" href="${homeHash()}">Kembali</a>`); return; }
     const draw = () => {
       const fase = [['f1', 'Fase 1', 'Memahami & Menguasai', 1, 7], ['f2', 'Fase 2', 'Merencanakan, Menilai & Mempraktikkan', 8, 16], ['f3', 'Fase 3', 'Mempraktikkan & Menumbuhkan Budaya', 17, 22]];
       const done = doneOf(s.id);
-      app.innerHTML = pageHead(esc(s.nama), `${esc(fasilNama(s) || '-')}${s.ksNama ? ' · Kepala sekolah: ' + esc(s.ksNama) : ''}${canEdit(s) ? '' : ' · <b>hanya baca</b>'}`,
-        ring(done, 22, 58), `<a class="crumb" href="#/buat">${ic('arrowL')}Semua sekolah</a>`) +
-        (!s.ksNama && canEdit(s) ? `<div class="banner warn small">${ic('alert')}<div>Nama kepala sekolah belum diisi — diperlukan untuk tanda tangan jurnal. <a href="#/sekolah">Lengkapi di Data Sekolah →</a></div></div>` : '') +
+      app.innerHTML = pageHead(esc(s.nama), `${esc(fasilNama(s) || '-')}${s.ksNama ? ' · Kepala sekolah: ' + esc(s.ksNama) : ''}${canFill(s) ? '' : ' · <b>hanya baca</b>'}`,
+        ring(done, 22, 58), `<a class="crumb" href="${S.user.peran === 'fasilitator' ? '#/buat' : '#/lihat'}">${ic('arrowL')}Semua sekolah</a>`) +
+        (!s.ksNama && canFill(s) ? `<div class="banner warn small">${ic('alert')}<div>Nama kepala sekolah belum diisi — diperlukan untuk tanda tangan jurnal. <a href="#/sekolah">Lengkapi di Data Sekolah →</a></div></div>` : '') +
         fase.map(([c, t, d, a, b]) => `<div class="phase ${c}"><b>${t}</b><span>${d}</span></div><div class="pcards">${window.SILABUS.filter(p => p.no >= a && p.no <= b).map(p => {
           const st = statusOf(s.id, p.no); const rk = S.rekap.get(R.key(s.id, p.no));
           return `<a class="pcard ${c} ${st}" href="#/laporan/${s.id}/${p.no}/1"><span class="no">${p.no}</span><div><div class="tt">${esc(p.judul)}</div>
@@ -714,16 +720,16 @@
         }).join('')}</div>`).join('');
     };
     draw();
-    if (await refreshRekap()) { if (location.hash === '#/buat/' + sid) draw(); }
+    if (await refreshRekap()) { if (location.hash === listHash(sid)) draw(); }
   }
 
   /* ---------- Editor ---------- */
-  const STEPS = no => ['Pelaksanaan', R.hasTes(no) ? 'Kehadiran & Nilai' : 'Kehadiran', R.isObservasi(no) ? 'Kegiatan & Observasi' : 'Kegiatan & Capaian', 'Evaluasi', 'Lampiran', 'Periksa & Unduh'];
+  const STEPS = no => ['Pelaksanaan', R.hasTes(no) ? 'Pretes & Kehadiran' : 'Kehadiran', R.hasTes(no) ? 'Postes & Capaian' : R.isObservasi(no) ? 'Observasi & Capaian' : 'Capaian', 'Evaluasi', 'Lampiran', 'Periksa & Unduh'];
   let readOnly = false;
 
   async function openReport(sid, no, step) {
     const s = school(sid);
-    if (!s || !(no >= 1 && no <= 22)) { app.innerHTML = emptyState('alert', 'Laporan tidak ditemukan', '', '<a class="btn" href="#/buat">Kembali</a>'); return; }
+    if (!s || !(no >= 1 && no <= 22)) { app.innerHTML = emptyState('alert', 'Laporan tidak ditemukan', '', `<a class="btn" href="${homeHash()}">Kembali</a>`); return; }
     const key = R.key(sid, no);
     S.step = Math.min(6, Math.max(1, step || 1));
     if (!S.cur || S.cur.key !== key) {
@@ -740,7 +746,7 @@
           S.cur = g.report ? normalize(Object.assign(g.report, { _version: g.version })) : normalize(Object.assign(R.blank(sid, no), { _version: g.version || 0 }));
           if (g.report) await DB.put('reports', clone(S.cur), key);
         } catch (e) {
-          if (!e.offline || (rk && rk.version > 0)) { app.innerHTML = emptyState('alert', 'Laporan belum bisa dimuat', esc(e.message), `<a class="btn" href="#/buat/${sid}">Kembali</a>`); return; }
+          if (!e.offline || (rk && rk.version > 0)) { app.innerHTML = emptyState('alert', 'Laporan belum bisa dimuat', esc(e.message), `<a class="btn" href="${listHash(sid)}">Kembali</a>`); return; }
           S.cur = normalize(Object.assign(R.blank(sid, no), { _version: 0 }));
         }
       } else S.cur = normalize(Object.assign(R.blank(sid, no), { _version: 0 }));
@@ -783,26 +789,26 @@
 
   function renderEditor() {
     const rep = S.cur, s = school(rep.sekolahId), sil = R.sil(rep.no);
-    readOnly = !canEdit(s);
+    readOnly = !canFill(s);
     const names = STEPS(rep.no);
     const dots = stepDots(rep, s);
     const st = curStatus();
     const rk = S.rekap.get(rep.key);
     const fase = rep.no <= 7 ? 'f1' : rep.no <= 16 ? 'f2' : 'f3';
     app.innerHTML = `
-      <div class="ed-head"><a class="crumb" href="#/buat/${s.id}">${ic('arrowL')}${esc(s.nama)}</a>
+      <div class="ed-head"><a class="crumb" href="${listHash(s.id)}">${ic('arrowL')}${esc(s.nama)}</a>
         <h1>P${rep.no} · ${esc(sil.judul)}</h1>
         <div class="meta"><span class="phase ${fase}" style="margin:0"><b>${esc(sil.fase)}</b></span><span>${esc(sil.tahap)}</span>
           <span id="statpill" class="pill ${st}">${st === 'kosong' ? 'baru' : st}</span>
           ${rk && rk.updatedBy ? `<span>Terakhir diubah ${esc(rk.updatedBy.split(',')[0])}, ${fmtWaktu(rk.updatedAt)}</span>` : ''}</div></div>
-      ${readOnly ? `<div class="banner info small" style="margin-top:14px">${ic('eye')}<div>Mode baca — laporan ini dipegang <b>${esc(fasilNama(s) || 'fasilitator lain')}</b>; Anda bisa melihat isinya dan pratinjau PDF.</div></div>` : ''}
+      ${readOnly ? `<div class="banner info small" style="margin-top:14px">${ic('eye')}<div>Mode baca — laporan ini diisi oleh <b>${esc(fasilNama(s) || 'fasilitator pemegang')}</b>; Anda bisa melihat isinya dan pratinjau PDF.</div></div>` : ''}
       <div class="ed" style="margin-top:18px">
         <nav class="stepper">${names.map((n, i) => `<a href="#/laporan/${s.id}/${rep.no}/${i + 1}" class="${S.step === i + 1 ? 'on' : ''}"><span class="n ${dots[i]}">${dots[i] === 'ok' ? ic('check') : i + 1}</span><span class="lbl">${n}</span></a>`).join('')}
           <div class="sfoot" id="sfoot"></div></nav>
         <div id="stepbody"></div>
       </div>
       <div class="navbtm"><div class="in">
-        ${S.step > 1 ? `<a class="btn" href="#/laporan/${s.id}/${rep.no}/${S.step - 1}">${ic('arrowL')}Sebelumnya</a>` : `<a class="btn ghost" href="#/buat/${s.id}">${ic('arrowL')}Daftar laporan</a>`}
+        ${S.step > 1 ? `<a class="btn" href="#/laporan/${s.id}/${rep.no}/${S.step - 1}">${ic('arrowL')}Sebelumnya</a>` : `<a class="btn ghost" href="${listHash(s.id)}">${ic('arrowL')}Daftar laporan</a>`}
         <span class="spacer"></span>
         ${S.step < 6 ? `<a class="btn pri" href="#/laporan/${s.id}/${rep.no}/${S.step + 1}">Berikutnya${ic('arrowR')}</a>` : `<button class="btn ok" data-act="download"${R.isComplete(rep, s) ? '' : ' disabled'}>${ic('download')}Unduh PDF</button>`}
       </div></div>`;
@@ -822,7 +828,8 @@
     body.innerHTML = conflictBanner(rep) + [null, step1, step2, step3, step4, step5, step6][S.step](rep, s, R.sil(rep.no));
     if (readOnly) {
       body.querySelectorAll('input, select, textarea').forEach(e => { if (e.dataset.act !== 'showall') e.disabled = true; });
-      body.querySelectorAll('[data-act]').forEach(b => { if (!['preview', 'download'].includes(b.dataset.act) && b.tagName !== 'INPUT') b.style.display = 'none'; });
+      const keep = ['preview', 'download'].concat(isAdmin() ? ['del-report'] : []);
+      body.querySelectorAll('[data-act]').forEach(b => { if (!keep.includes(b.dataset.act) && b.tagName !== 'INPUT') b.style.display = 'none'; });
       body.querySelectorAll('label.upl, .chips, .ro-hide').forEach(e => { e.style.display = 'none'; });
     }
     fillThumbs();
@@ -831,6 +838,14 @@
   }
 
   /* ---- Langkah 1 ---- */
+  const isoToDmy = iso => { if (!iso) return ''; const [y, m, d] = iso.split('-'); return d + '/' + m + '/' + y; };
+  function dmyToIso(v) {
+    const m = String(v || '').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); if (!m) return null;
+    const d = +m[1], mo = +m[2], y = +m[3];
+    const dt = new Date(y, mo - 1, d);
+    if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null;
+    return y + '-' + String(mo).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+  }
   function step1(rep, s, sil) {
     const f = fasilOf(s);
     const hadir = R.fasilHadir(rep, s);
@@ -838,16 +853,18 @@
       ${f.length ? `<div class="fh">${f.map(u => `<label><input type="checkbox" data-act="fh" data-u="${esc(u)}"${hadir.some(x => eqU(x, u)) ? ' checked' : ''}>
         <span><b>${esc(namaUser(u))}</b><br><span class="tiny muted">${esc(u)}</span></span></label>`).join('')}</div>
         <p class="tiny muted" style="margin:10px 0 0">Nama yang dicentang tercetak di sampul dan menandatangani jurnal kegiatan.</p>`
-      : `<div class="banner warn small">${ic('alert')}<div>Sekolah ini belum punya fasilitator. Atur di <a href="#/sekolah">Data Sekolah</a>.</div></div>`}</div>
+      : `<div class="banner warn small">${ic('alert')}<div>Sekolah ini belum punya fasilitator. Hubungi admin.</div></div>`}</div>
       <div class="card"><div class="card-h">${ic('calendar')}<h2>Waktu & tempat</h2></div>
-      <div class="grid2">
-        <div><label class="f">Tanggal pelaksanaan</label><input type="date" data-r="tanggal" value="${esc(rep.tanggal)}"></div>
-        <div class="row" style="align-items:flex-end;flex-wrap:nowrap"><div style="flex:1"><label class="f">Jam mulai</label><input type="text" data-r="jamMulai" value="${esc(rep.jamMulai)}" placeholder="08.00"></div>
-        <div style="flex:1"><label class="f">Jam selesai</label><input type="text" data-r="jamSelesai" value="${esc(rep.jamSelesai)}" placeholder="11.00"></div></div>
-        <div><label class="f">Tempat</label><input type="text" data-r="tempat" value="${esc(rep.tempat)}" placeholder="mis. Ruang kelas 6 ${esc(s.nama)}">
-        <button class="btn sm ghost" data-act="tempat-sekolah" style="margin-top:6px">${ic('school')}Isi: ${esc(s.nama)}</button></div>
+      <div class="when">
+        <div><label class="f">Tanggal pelaksanaan</label>
+          <div class="datef"><input type="text" id="tgl" data-date="1" value="${esc(isoToDmy(rep.tanggal))}" placeholder="DD/MM/YYYY" inputmode="numeric" maxlength="10" autocomplete="off">
+          <button type="button" class="calbtn" data-act="cal" title="Pilih dari kalender">${ic('calendar')}</button><div class="cal" id="calpop"></div></div></div>
+        <div><label class="f">Jam mulai</label><input type="text" data-r="jamMulai" value="${esc(rep.jamMulai)}" placeholder="08.00"></div>
+        <div><label class="f">Jam selesai</label><input type="text" data-r="jamSelesai" value="${esc(rep.jamSelesai)}" placeholder="11.00"></div>
+        <div><label class="f">Tempat</label><input type="text" data-r="tempat" value="${esc(rep.tempat || s.nama)}" placeholder="${esc(s.nama)}"></div>
       </div>
-      <label class="f" style="margin-top:16px">Kalimat di laporan</label><div class="preview" id="pv-pel">${esc(R.kalimatPelaksanaan(rep, s))}</div></div>
+      <div class="tiny muted" id="tgl-hari" style="margin-top:6px;min-height:1.2em">${rep.tanggal ? esc(R.tanggalPanjang(rep.tanggal)) : 'Ketik tanggal, mis. 20112026 → 20/11/2026'}</div>
+      <label class="f" style="margin-top:12px">Kalimat di laporan</label><div class="preview" id="pv-pel">${esc(R.kalimatPelaksanaan(rep, s))}</div></div>
       <div class="card"><div class="card-h">${ic('file')}<h2>Ringkasan dari silabus</h2></div>
         <table class="simple"><tbody>
         <tr><th>Tahap</th><td>${esc(sil.tahap)}</td></tr>
@@ -856,9 +873,33 @@
         <tr><th>Metode</th><td>${esc(sil.metode)}</td></tr>
         <tr><th>Penilaian</th><td>${sil.penilaian.map(esc).join('<br>')}</td></tr>
         <tr><th>Lembar kerja</th><td>${sil.lk.map(esc).join('<br>')}</td></tr>
-        <tr><th>Sumber bahan</th><td>${esc(sil.sumber)}</td></tr>
         </tbody></table>
-        <p class="tiny muted" style="margin:10px 0 0">Latar belakang, tujuan, indikator, dan langkah kegiatan otomatis diambil dari silabus.</p></div>`;
+        <p class="tiny muted" style="margin:10px 0 0">Latar belakang, tujuan, indikator, dan langkah pelaksanaan otomatis diambil dari silabus.</p></div>`;
+  }
+
+  /* Kalender kecil berbahasa Indonesia */
+  const BLN = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+  function drawCal() {
+    const el = document.getElementById('calpop'); if (!el || !S.cal) return;
+    const { y, m } = S.cal;
+    const first = new Date(y, m, 1), days = new Date(y, m + 1, 0).getDate();
+    const off = (first.getDay() + 6) % 7;   // Senin = 0
+    const sel = S.cur && S.cur.tanggal;
+    const today = new Date(); const tIso = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+    let cells = '';
+    for (let i = 0; i < off; i++) cells += '<span></span>';
+    for (let d = 1; d <= days; d++) {
+      const iso = y + '-' + String(m + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+      cells += `<button type="button" data-act="cal-day" data-iso="${iso}" class="${iso === sel ? 'sel' : ''}${iso === tIso ? ' today' : ''}">${d}</button>`;
+    }
+    el.innerHTML = `<div class="cal-h"><button type="button" data-act="cal-nav" data-d="-1">‹</button><b>${BLN[m]} ${y}</b><button type="button" data-act="cal-nav" data-d="1">›</button></div>
+      <div class="cal-g">${['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'].map(x => `<i>${x}</i>`).join('')}${cells}</div>`;
+    el.classList.add('open');
+  }
+  function setTanggal(iso) {
+    const rep = S.cur; if (!rep) return;
+    rep.tanggal = iso || ''; touch(); updatePreviews();
+    const h = document.getElementById('tgl-hari'); if (h) h.textContent = iso ? R.tanggalPanjang(iso) : 'Tanggal tidak valid — gunakan format DD/MM/YYYY';
   }
 
   function pesertaRow(s, p, withCheck, hadirSet, rep, ed) {
@@ -878,129 +919,133 @@
     </div>`;
   }
 
+  /* ---- Langkah 2: Pretes & Kehadiran ---- */
   function step2(rep, s) {
     let html = '';
-    if (R.hasTes(rep.no)) html += tesCard(rep, s);
+    if (R.hasTes(rep.no)) html += tesCard(rep, s, 'pre');
     const g = R.groupKelas(rep.no);
     const hadir = new Set(rep.hadir || []);
     const rel = R.relevantPeserta(s, rep.no, S.showAll);
     const list = R.sortPeserta(rel.concat((s.peserta || []).filter(p => hadir.has(p.id) && !rel.includes(p))));
-    html += `<div class="card"><div class="row"><h2 style="margin:0">Kehadiran peserta</h2><span class="spacer"></span>
-        <span class="small muted">Hadir: <b id="hadirN">${R.hadirList(rep, s).length}</b> orang</span></div>
-      ${g ? `<div class="banner info small" style="margin:10px 0">Pendampingan ini untuk <b>Kepala Sekolah dan guru kelas ${g[0]} dan ${g[1]}</b>. Daftar disaring dari jabatan/kelas peserta.
-        <label style="margin-left:6px"><input type="checkbox" data-act="showall"${S.showAll ? ' checked' : ''} style="vertical-align:-4px"> tampilkan semua peserta sekolah</label></div>` : ''}
-      ${R.hasTes(rep.no) ? '<p class="small muted ro-hide">Peserta yang mengerjakan pretes/postes otomatis dicentang hadir saat nilai diambil.</p>' : ''}
-      <div class="row" style="margin:8px 0"><button class="btn sm" data-act="hadir-all">Centang semua</button><button class="btn sm" data-act="hadir-none">Kosongkan</button></div>
+    html += `<div class="card"><div class="card-h">${ic('users')}<h2>Kehadiran peserta</h2><span class="spacer"></span>
+        <span class="pill navy">Hadir: <b id="hadirN" style="margin-left:4px">${R.hadirList(rep, s).length}</b>&nbsp;orang</span></div>
+      ${g ? `<div class="banner info small">${ic('info')}<div>Pendampingan ini untuk <b>Kepala Sekolah dan guru kelas ${g[0]} dan ${g[1]}</b>.
+        <label style="margin-left:6px;white-space:nowrap"><input type="checkbox" data-act="showall"${S.showAll ? ' checked' : ''} style="vertical-align:-4px"> tampilkan semua peserta sekolah</label></div></div>` : ''}
+      ${R.hasTes(rep.no) ? `<p class="small muted ro-hide" style="margin-top:-4px">Peserta yang mengerjakan pretes otomatis tercentang hadir. Centang juga yang hadir tetapi tidak ikut pretes.</p>` : ''}
+      <div class="row ro-hide" style="margin:4px 0 10px"><button class="btn sm" data-act="hadir-all">${ic('check')}Centang semua</button><button class="btn sm ghost" data-act="hadir-none">Kosongkan</button></div>
       ${list.length ? `<div class="peserta-list">${list.map(p => pesertaRow(s, p, true, hadir, rep, !readOnly)).join('')}</div>` :
-        `<div class="banner warn small">Belum ada peserta${g && !S.showAll ? ' untuk kelompok kelas ini (cek jabatan/kelas peserta, atau centang “tampilkan semua”)' : ''}.${R.hasTes(rep.no) ? ' Impor nilai — daftar terbentuk otomatis — atau tambahkan di bawah.' : ' Tambahkan di bawah.'}</div>`}
-      <div class="row ro-hide" style="margin-top:10px">
-        <input type="text" id="np-nama" placeholder="Nama peserta baru" style="flex:2;min-width:180px">
-        <select id="np-jab" style="flex:1;min-width:140px">${opts(JABATAN, g ? 'Guru Kelas' : '', ['— jabatan —'].concat(JABATAN.slice(1)))}</select>
-        <select id="np-kel" style="width:90px">${opts(KELAS, g ? g[0] : '', ['kelas', '1', '2', '3', '4', '5', '6'])}</select>
-        <button class="btn" data-act="add-peserta">Tambah</button></div>
-      <label class="f" style="margin-top:12px">Kalimat di laporan</label><div class="preview" id="pv-pes">${esc(R.kalimatPeserta(rep, s))}</div></div>`;
+        `<div class="banner warn small">${ic('alert')}<div>Belum ada peserta${g && !S.showAll ? ' untuk kelompok kelas ini (cek jabatan/kelas guru, atau centang “tampilkan semua”)' : ''}.${R.hasTes(rep.no) ? ' Unggah file pretes di atas — daftar terbentuk otomatis — atau tambahkan di bawah.' : ' Lengkapi data guru di menu Data Sekolah atau tambahkan di bawah.'}</div></div>`}
+      <div class="addrow ro-hide" style="grid-template-columns:2fr 1.2fr .6fr auto">
+        <input type="text" id="np-nama" placeholder="Nama peserta lain yang hadir">
+        <select id="np-jab">${opts(JABATAN, g ? 'Guru Kelas' : 'Guru Kelas', ['— jabatan —'].concat(JABATAN.slice(1)))}</select>
+        <select id="np-kel">${opts(KELAS, g ? g[0] : '', ['kelas', '1', '2', '3', '4', '5', '6'])}</select>
+        <button class="btn" data-act="add-peserta">${ic('plus')}Tambah</button></div>
+      <label class="f" style="margin-top:16px">Kalimat di laporan</label><div class="preview" id="pv-pes">${esc(R.kalimatPeserta(rep, s))}</div></div>`;
     return html;
   }
 
-  function tesCard(rep, s) {
-    let h = `<div class="card"><h2>Nilai pretes & postes</h2>`;
+  /* Kartu nilai: mode 'pre' (langkah 2) atau 'post' (langkah 3). Satu file Google Form berisi pretes + postes. */
+  function tesCard(rep, s, mode) {
+    const judul = mode === 'pre' ? 'Pretes' : 'Postes';
+    let h = `<div class="card"><div class="card-h">${ic('file')}<h2>${judul}</h2><span class="spacer"></span>${rep.tes ? `<span class="tiny muted">${esc(rep.tes.fileName)}</span>` : ''}</div>`;
+    if (S.imp && S.impMode === mode) return h + impMapping(rep, s) + '</div>';
     const st = R.stats(rep);
-    if (st && !S.imp) {
-      h += `<div class="stats"><div class="stat"><b>${R.fmt(st.pre)}</b>rata-rata pretes (${st.preN} org)</div>
-        <div class="stat"><b>${R.fmt(st.post)}</b>rata-rata postes (${st.postN} org)</div>
-        <div class="stat"><b>${st.selisih === null ? '-' : (st.selisih >= 0 ? '+' : '−') + R.fmt(Math.abs(st.selisih))}</b>poin ${st.persen === null ? '' : '(' + R.fmt(st.persen) + '%)'}</div></div>
-        <p class="small muted">Sumber: ${esc(rep.tes.fileName)} · diambil ${new Date(rep.tes.importedAt).toLocaleString('id-ID')}</p>`;
-      if (st.onlyPre.length || st.onlyPost.length) {
-        h += `<div class="banner warn small">${st.onlyPre.length ? `<b>Hanya ikut pretes:</b> ${esc(st.onlyPre.join(', '))}. ` : ''}${st.onlyPost.length ? `<b>Hanya ikut postes:</b> ${esc(st.onlyPost.join(', '))}.` : ''}
-          Rata-rata tiap tes tetap dihitung dari semua yang mengerjakannya. Catatan ini tidak masuk ke PDF.</div>`;
+    const uploadBtn = (label, pri) => `<label class="btn ${pri ? 'pri ' : ''}upl">${ic('upload')}${label}<input type="file" accept=".csv,.xlsx,.tsv" data-act="imp-file" data-mode="${mode}"></label>`;
+    const rowsTable = jenis => `<details class="adv"><summary>Lihat nilai ${jenis === 'pre' ? 'pretes' : 'postes'} per peserta</summary>
+      <table class="simple"><tbody>${rep.tes.rows.filter(r => r.jenis === jenis).sort((a, b) => a.nama.localeCompare(b.nama)).map(r => `<tr><td>${esc(r.nama)}</td><td style="width:90px;text-align:right">${R.fmt(r.skor)}</td></tr>`).join('')}</tbody></table></details>`;
+    if (mode === 'pre') {
+      if (st && st.preN) {
+        h += `<div class="stats"><div class="stat"><b>${R.fmt(st.pre)}</b><span>rata-rata pretes · ${st.preN} peserta</span></div></div>
+          <div class="banner ${st.postN ? 'ok' : 'info'} small" style="margin-top:12px">${ic(st.postN ? 'check' : 'info')}<div>${st.postN ? `Postes juga sudah terbaca dari file yang sama (<b>${st.postN}</b> peserta) — tampil di langkah 3.` : 'Postes belum ada di file ini. Di langkah 3 Anda bisa mengunggah file terbaru setelah postes dikerjakan.'}</div></div>
+          ${rowsTable('pre')}
+          <div class="row ro-hide" style="margin-top:12px">${uploadBtn('Unggah ulang file')}<button class="btn danger" data-act="tes-del">${ic('trash')}Hapus data nilai</button></div>`;
+        return h + '</div>';
       }
-      h += `<details class="adv"><summary>Lihat data nilai (${rep.tes.rows.length} baris)</summary>
-        <table class="simple"><thead><tr><th>Nama</th><th>Tes</th><th>Skor (0–100)</th></tr></thead><tbody>
-        ${rep.tes.rows.slice().sort((a, b) => a.nama.localeCompare(b.nama) || b.jenis.localeCompare(a.jenis)).map(r => `<tr><td>${esc(r.nama)}</td><td>${r.jenis === 'pre' ? 'Pretes' : 'Postes'}</td><td>${R.fmt(r.skor)}</td></tr>`).join('')}
-        </tbody></table></details>
-        <div class="row ro-hide" style="margin-top:10px"><label class="btn upl">Impor ulang file<input type="file" accept=".csv,.xlsx,.tsv" data-act="imp-file"></label>
-        <button class="btn danger" data-act="tes-del">Hapus data nilai</button></div>`;
-      return h + '</div>';
-    }
-    if (!S.imp) {
-      if (readOnly) return h + '<p class="muted">Nilai belum diimpor.</p></div>';
-      h += `<p>Unggah file respons Google Form (pretes & postes) — <b>boleh berisi semua sekolah sekaligus</b>; aplikasi hanya mengambil baris <b>${esc(s.nama)}</b>.</p>
-        <p class="small muted">Di Google Form: tab <i>Respons</i> → ikon Spreadsheet → di Google Sheets pilih <i>File → Download → .csv atau .xlsx</i>.</p>
-        <label class="btn pri upl">Pilih file .csv / .xlsx<input type="file" accept=".csv,.xlsx,.tsv" data-act="imp-file"></label>
+      if (readOnly) return h + '<p class="muted" style="margin:0">Pretes belum diunggah.</p></div>';
+      h += `<p style="margin-top:-4px">Unggah file respons Google Form — <b>pretes dan postes boleh dalam satu file</b>, berisi semua sekolah. Aplikasi otomatis menyaring baris <b>${esc(s.nama)}</b> dan memisahkan pretes & postes.</p>
+        <div class="row">${uploadBtn('Pilih file .csv / .xlsx', true)}<span class="small muted">Google Form → Respons → Lihat di Spreadsheet → File → Download</span></div>
         <details class="adv"><summary>Kolom yang dibutuhkan di Google Form</summary>
         <ul class="small"><li><b>Nama</b> peserta</li><li><b>Asal Sekolah</b> — sebaiknya pilihan dropdown</li>
         <li><b>Jenis Tes</b> — pilihan “Pre-tes” / “Post-tes”</li><li><b>Skor</b> — otomatis bila form diatur sebagai Kuis (mis. “8 / 11” → 72,73)</li>
         <li>Opsional: <b>Jabatan/Kelas</b>, dan <b>Pendampingan ke-</b> bila satu form dipakai untuk beberapa pendampingan</li></ul></details>`;
       return h + '</div>';
     }
+    // mode postes
+    if (st && st.postN) {
+      h += `<div class="stats"><div class="stat"><b>${R.fmt(st.pre)}</b><span>rata-rata pretes · ${st.preN} org</span></div>
+        <div class="stat ok"><b>${R.fmt(st.post)}</b><span>rata-rata postes · ${st.postN} org</span></div>
+        <div class="stat gold"><b>${st.selisih === null ? '-' : (st.selisih >= 0 ? '+' : '−') + R.fmt(Math.abs(st.selisih))}</b><span>poin ${st.persen === null ? '' : '(' + R.fmt(st.persen) + '%)'}</span></div></div>`;
+      if (st.onlyPre.length || st.onlyPost.length) {
+        h += `<div class="banner warn small" style="margin-top:12px">${ic('alert')}<div>${st.onlyPre.length ? `<b>Hanya ikut pretes:</b> ${esc(st.onlyPre.join(', '))}. ` : ''}${st.onlyPost.length ? `<b>Hanya ikut postes:</b> ${esc(st.onlyPost.join(', '))}.` : ''}
+          Rata-rata tiap tes dihitung dari semua yang mengerjakannya. Catatan ini tidak masuk ke PDF.</div></div>`;
+      }
+      h += rowsTable('post') + `<div class="row ro-hide" style="margin-top:12px">${uploadBtn('Unggah file terbaru')}</div>`;
+      return h + '</div>';
+    }
+    if (readOnly) return h + '<p class="muted" style="margin:0">Postes belum ada.</p></div>';
+    h += st && st.preN
+      ? `<div class="banner warn small">${ic('alert')}<div>Postes belum ada di file yang diunggah di langkah 2. Setelah peserta mengerjakan postes, unduh ulang respons Google Form lalu unggah di sini — pretes yang sudah ada ikut diperbarui.</div></div>`
+      : `<div class="banner info small">${ic('info')}<div>Belum ada file nilai. Unggah file Google Form (pretes + postes) di sini atau di langkah 2.</div></div>`;
+    return h + `<div class="row">${uploadBtn('Pilih file .csv / .xlsx', true)}</div></div>`;
+  }
+
+  function impMapping(rep, s) {
     const imp = S.imp, an = imp.an, c = imp.cols;
     const colSel = (k, label, wajib) => `<div><label class="f">${label}${wajib ? ' *' : ''}</label><select data-imp-col="${k}">
       <option value="-1">${wajib ? '— pilih kolom —' : '— tidak ada —'}</option>${an.header.map((hh, i) => `<option value="${i}"${c[k] === i ? ' selected' : ''}>${esc(hh || 'Kolom ' + (i + 1))}</option>`).join('')}</select></div>`;
-    h += `<p class="small"><b>${esc(imp.fileName)}</b> · ${an.body.length} baris respons</p>
-      <h3>1. Cocokkan kolom</h3><div class="grid2">${colSel('nama', 'Nama', 1)}${colSel('sekolah', 'Asal sekolah', 1)}${colSel('jenis', 'Jenis tes (pre/post)', 1)}${colSel('skor', 'Skor', 1)}${colSel('jabatan', 'Jabatan/Kelas', 0)}${colSel('pendampingan', 'Pendampingan ke-', 0)}</div>`;
+    let h = `<p class="small" style="margin-top:-4px"><b>${esc(imp.fileName)}</b> · ${an.body.length} baris respons</p>
+      <h3>1. Cocokkan kolom</h3><div class="grid3">${colSel('nama', 'Nama', 1)}${colSel('sekolah', 'Asal sekolah', 1)}${colSel('jenis', 'Jenis tes', 1)}${colSel('skor', 'Skor', 1)}${colSel('jabatan', 'Jabatan/Kelas', 0)}${colSel('pendampingan', 'Pendampingan ke-', 0)}</div>`;
     if (c.sekolah >= 0) {
       const vals = I.distinct(an.body, c.sekolah).sort((a, b) => (imp.schools.has(b.value) - imp.schools.has(a.value)) || b.count - a.count);
-      h += `<h3 style="margin-top:14px">2. Pilih nama sekolah yang berarti <u>${esc(s.nama)}</u></h3>
+      h += `<h3 style="margin-top:18px">2. Pilih nama sekolah yang berarti <u>${esc(s.nama)}</u></h3>
         <p class="small muted">Yang tercentang otomatis dikenali dari nama sekolah. Centang juga ejaan lain milik sekolah ini.</p>
         <div class="peserta-list" style="max-height:240px">${vals.map(v => `<label class="pr" style="grid-template-columns:26px 1fr 80px"><input type="checkbox" data-imp-school="${esc(v.value)}"${imp.schools.has(v.value) ? ' checked' : ''}><span>${esc(v.value)}</span><span class="small muted">${v.count} baris</span></label>`).join('')}</div>`;
     }
     if (c.jenis >= 0) {
       const jv = I.distinct(an.body, c.jenis);
-      h += `<p class="small" style="margin-top:10px">Isi kolom jenis tes: ${jv.map(v => { const p = I.parseJenis(v.value); return `<span class="pill ${p ? 'lengkap' : 'draf'}">${esc(v.value)} → ${p === 'pre' ? 'Pretes' : p === 'post' ? 'Postes' : 'tidak dikenali'}</span>`; }).join(' ')}</p>`;
+      h += `<p class="small" style="margin-top:12px">Isi kolom jenis tes: ${jv.map(v => { const p = I.parseJenis(v.value); return `<span class="pill ${p ? 'lengkap' : 'draf'}">${esc(v.value)} → ${p === 'pre' ? 'Pretes' : p === 'post' ? 'Postes' : 'tidak dikenali'}</span>`; }).join(' ')}</p>`;
     }
     const ready = c.nama >= 0 && c.sekolah >= 0 && c.jenis >= 0 && c.skor >= 0 && imp.schools.size;
-    let info = '';
     if (ready) {
       const ex = I.extract(an, c, [...imp.schools], rep.no);
       const pre = ex.rows.filter(r => r.jenis === 'pre').length, post = ex.rows.filter(r => r.jenis === 'post').length;
-      info = `<div class="banner ${pre + post ? 'info' : 'bad'} small" style="margin-top:10px">Akan diambil: <b>${pre}</b> pretes dan <b>${post}</b> postes untuk ${esc(s.nama)}.
-        ${ex.skipped.jenis ? ex.skipped.jenis + ' baris jenis tes tidak dikenali. ' : ''}${ex.skipped.skor ? ex.skipped.skor + ' baris tanpa skor. ' : ''}${ex.skipped.pendampingan ? ex.skipped.pendampingan + ' baris milik pendampingan lain dilewati.' : ''}</div>`;
+      h += `<div class="banner ${pre + post ? 'info' : 'bad'} small" style="margin-top:12px">${ic('info')}<div>Ditemukan <b>${pre}</b> pretes dan <b>${post}</b> postes untuk ${esc(s.nama)}.
+        ${ex.skipped.jenis ? ex.skipped.jenis + ' baris jenis tes tidak dikenali. ' : ''}${ex.skipped.skor ? ex.skipped.skor + ' baris tanpa skor. ' : ''}${ex.skipped.pendampingan ? ex.skipped.pendampingan + ' baris milik pendampingan lain dilewati.' : ''}</div></div>`;
     }
-    h += `${info}<div class="row" style="margin-top:12px"><button class="btn pri" data-act="imp-apply"${ready ? '' : ' disabled'}>Ambil nilai ${esc(s.nama)}</button>
-      <button class="btn" data-act="imp-cancel">Batal</button></div>`;
-    return h + '</div>';
+    return h + `<div class="row" style="margin-top:14px"><button class="btn pri" data-act="imp-apply"${ready ? '' : ' disabled'}>${ic('check')}Ambil nilai ${esc(s.nama)}</button>
+      <button class="btn ghost" data-act="imp-cancel">Batal</button></div>`;
   }
 
-  /* ---- Langkah 3 ---- */
+  /* ---- Langkah 3: Postes / Observasi & Capaian ---- */
   function step3(rep, s) {
-    const keg = R.kegiatan(rep);
-    let h = `<div class="card"><div class="row"><h2 style="margin:0">Langkah pelaksanaan</h2><span class="spacer"></span>
-      ${rep.kegiatan ? '<button class="btn sm" data-act="keg-reset">Kembalikan sesuai silabus</button>' : ''}</div>
-      <p class="small muted ro-hide">Diambil dari silabus. Hilangkan centang kegiatan yang tidak terlaksana, ubah teksnya (mis. nama ice breaking), atau tambah kegiatan. Catatan sesi masuk ke jurnal kegiatan.</p>
-      ${keg.map((k, si) => `<div class="sesi"><div class="sesi-h">${esc(k.sesi)} · ${esc(k.bagian)} <span class="pill kosong">${esc(k.waktu)}</span></div>
-        ${k.aktivitas.map((a, ai) => `<div class="akt ${a.aktif ? '' : 'off'}"><input type="checkbox" data-act="akt-toggle" data-si="${si}" data-ai="${ai}"${a.aktif ? ' checked' : ''}>
-          <input type="text" data-akt="${si}|${ai}" value="${esc(a.teks)}"><button class="btn sm" data-act="akt-del" data-si="${si}" data-ai="${ai}" title="Hapus">×</button></div>`).join('')}
-        <div class="row" style="margin-top:6px"><button class="btn sm" data-act="akt-add" data-si="${si}">+ Tambah kegiatan</button>
-        <input type="text" data-cat="${si}" value="${esc(k.catatan)}" placeholder="Catatan sesi untuk jurnal (opsional) — default: Terlaksana sesuai rencana" style="flex:1;min-width:220px;padding:5px 8px;font-size:.88rem"></div></div>`).join('')}</div>`;
-
-    h += `<div class="card"><h2>Capaian indikator</h2><p class="small muted">Menentukan kalimat Kondisi Akhir. Bawaan: tercapai.</p>
-      ${R.indikatorList(rep.no).map(i => { const v = rep.capaian[i.id] || 'tercapai'; return `<div class="ind"><div><span class="pill kosong">${i.dim}</span> ${esc(i.teks)}</div>
-        <div class="seg">${['tercapai', 'sebagian', 'belum'].map(x => `<button data-act="cap" data-id="${i.id}" data-v="${x}" class="${v === x ? 'on' : ''}"${readOnly ? ' disabled' : ''}>${x[0].toUpperCase() + x.slice(1)}</button>`).join('')}</div></div>`; }).join('')}</div>`;
-
+    let h = '';
+    if (R.hasTes(rep.no)) h += tesCard(rep, s, 'post');
     if (R.isObservasi(rep.no)) {
       const names = R.relevantPeserta(s, rep.no, false).map(p => p.nama);
-      h += `<div class="card"><h2>Hasil observasi & coaching</h2>
+      h += `<div class="card"><div class="card-h">${ic('eye')}<h2>Hasil observasi & coaching</h2></div>
         <datalist id="dl-guru">${names.map(n => `<option value="${esc(n)}">`).join('')}</datalist>
-        ${(rep.observasi || []).length ? '' : '<p class="small muted">Belum ada data observasi.</p>'}
+        ${(rep.observasi || []).length ? '' : '<p class="small muted" style="margin-top:-4px">Belum ada data observasi.</p>'}
         ${(rep.observasi || []).map((o, i) => `<div class="sesi"><div class="grid2">
           <div><label class="f">Guru yang diobservasi</label><input type="text" list="dl-guru" data-obs="${i}|guru" value="${esc(o.guru)}"></div>
           <div><label class="f">Kelas</label><input type="text" data-obs="${i}|kelas" value="${esc(o.kelas)}"></div></div>
-          <div class="grid2" style="margin-top:8px">
+          <div class="grid3" style="margin-top:10px">
           <div><label class="f">Kekuatan</label><textarea data-obs="${i}|kekuatan">${esc(o.kekuatan)}</textarea></div>
           <div><label class="f">Area perbaikan</label><textarea data-obs="${i}|perbaikan">${esc(o.perbaikan)}</textarea></div>
           <div><label class="f">Tindak lanjut (hasil coaching)</label><textarea data-obs="${i}|tindakLanjut">${esc(o.tindakLanjut)}</textarea></div></div>
-          <button class="btn sm danger" data-act="obs-del" data-i="${i}" style="margin-top:6px">Hapus guru ini</button></div>`).join('')}
-        <button class="btn" data-act="obs-add">+ Tambah guru yang diobservasi</button></div>`;
+          <button class="btn sm danger" data-act="obs-del" data-i="${i}" style="margin-top:8px">${ic('trash')}Hapus guru ini</button></div>`).join('')}
+        <button class="btn" data-act="obs-add">${ic('plus')}Tambah guru yang diobservasi</button></div>`;
     }
-
-    const tf = (k, label, auto) => `<div style="margin-top:10px"><div class="row"><label class="f" style="margin:0">${label}</label><span class="spacer"></span>
-      <span class="small muted" id="tm-${k}">${rep.teks[k] ? 'diedit manual' : 'otomatis'}</span>
-      <button class="btn sm" data-act="teks-reset" data-k="${k}">Kembalikan otomatis</button></div>
+    h += `<div class="card"><div class="card-h">${ic('check')}<h2>Capaian indikator</h2></div><p class="small muted" style="margin-top:-6px">Menentukan kalimat Kondisi Akhir. Bawaan: tercapai.</p>
+      ${R.indikatorList(rep.no).map(i => { const v = rep.capaian[i.id] || 'tercapai'; return `<div class="ind"><div><span class="pill navy">${i.dim}</span> ${esc(i.teks)}</div>
+        <div class="seg">${['tercapai', 'sebagian', 'belum'].map(x => `<button data-act="cap" data-id="${i.id}" data-v="${x}" class="${v === x ? 'on' : ''}"${readOnly ? ' disabled' : ''}>${x[0].toUpperCase() + x.slice(1)}</button>`).join('')}</div></div>`; }).join('')}</div>`;
+    const tf = (k, label, auto) => `<div style="margin-top:12px"><div class="row"><label class="f" style="margin:0">${label}</label><span class="spacer"></span>
+      <span class="tiny muted" id="tm-${k}">${rep.teks[k] ? 'diedit manual' : 'otomatis'}</span>
+      <button class="btn sm ghost" data-act="teks-reset" data-k="${k}">Kembalikan otomatis</button></div>
       <textarea data-teks="${k}" style="min-height:${k === 'latar' ? 170 : 120}px">${esc(rep.teks[k] || auto)}</textarea></div>`;
-    h += `<div class="card"><h2>Teks laporan</h2><p class="small muted ro-hide">Disusun otomatis. Ubah bila perlu — begitu diedit, teks tidak lagi mengikuti perubahan nilai/capaian sampai dikembalikan otomatis.</p>
+    h += `<details class="card adv0"><summary><b>Teks laporan</b> <span class="small muted">— kondisi awal, kondisi akhir, latar belakang (otomatis, bisa diedit)</span></summary>
       ${tf('kondisiAwal', 'Kondisi awal', autoTeks(rep, 'kondisiAwal'))}
       ${tf('kondisiAkhir', 'Kondisi akhir', autoTeks(rep, 'kondisiAkhir'))}
-      <details class="adv"><summary>Latar belakang (dari deskripsi silabus)</summary>${tf('latar', 'Latar belakang', autoTeks(rep, 'latar'))}</details></div>`;
+      ${tf('latar', 'Latar belakang', autoTeks(rep, 'latar'))}</details>`;
     return h;
   }
   function autoTeks(rep, k) {
@@ -1081,7 +1126,7 @@
       ${done ? `<div class="banner ok small">${ic('check')}<div>Semua bagian wajib lengkap. File: <b>${esc(R.fileName(rep, s))}</b><br>Saat diunduh, salinan PDF juga diarsipkan otomatis ke folder sekolah di Google Drive.</div></div>`
         : `<div class="banner warn small">${ic('alert')}<div>Masih ada bagian wajib yang belum lengkap. Pratinjau tetap bisa dilihat dengan tanda <b>DRAF</b>; tombol unduh aktif setelah semua lengkap.</div></div>`}
       <div class="row"><button class="btn" data-act="preview">${ic('eye')}Pratinjau</button><button class="btn ok" data-act="download"${done ? '' : ' disabled'}>${ic('download')}Unduh PDF</button></div></div>
-      ${!readOnly && (rep._version > 0 || rep._dirty) ? `<div class="card"><div class="card-h">${ic('trash')}<h3>Hapus laporan</h3></div><p class="small muted" style="margin-top:-6px">Folder laporan ini (isian, foto, PDF) dipindah ke Sampah Google Drive dan masih bisa dipulihkan admin selama 30 hari.</p><button class="btn danger" data-act="del-report">${ic('trash')}Hapus laporan ini</button></div>` : ''}`;
+      ${(!readOnly || isAdmin()) && (rep._version > 0 || rep._dirty) ? `<div class="card"><div class="card-h">${ic('trash')}<h3>Hapus laporan${isAdmin() ? ' (darurat, admin)' : ''}</h3></div><p class="small muted" style="margin-top:-6px">Folder laporan ini (isian, foto, PDF) dipindah ke Sampah Google Drive dan masih bisa dipulihkan admin selama 30 hari.</p><button class="btn danger" data-act="del-report">${ic('trash')}Hapus laporan ini</button></div>` : ''}`;
   }
 
   async function makePdfBytes(rep, s, draft) {
@@ -1120,7 +1165,8 @@
   }
 
   /* ---------- Impor nilai ---------- */
-  async function importFile(file) {
+  async function importFile(file, mode) {
+    S.impMode = mode || 'pre';
     try {
       const rows = await I.readFile(file);
       const an = I.analyze(rows);
@@ -1157,7 +1203,43 @@
     markPeserta(s.id);
     touch(); rerenderStep();
     const st = R.stats(rep);
-    toast(`Nilai diambil: ${st.preN} pretes, ${st.postN} postes${baru ? ' · ' + baru + ' peserta baru ditambahkan' : ''}.`, false, 4500);
+    toast(`Nilai diambil: ${st.preN} pretes, ${st.postN} postes${baru ? ' · ' + baru + ' peserta baru ditambahkan' : ''}. Kehadiran dicentang otomatis.`, false, 5000);
+  }
+
+  /* =========================================================
+   * LIHAT LAPORAN (admin & pemantau) — pemantauan
+   * ========================================================= */
+  async function renderLihat() {
+    const draw = () => {
+      const sk = S.sekolah;
+      const tot = sk.length * 22;
+      let lengkap = 0, draf = 0;
+      sk.forEach(s => window.SILABUS.forEach(p => { const st = statusOf(s.id, p.no); if (st === 'lengkap') lengkap++; else if (st === 'draf') draf++; }));
+      const last = sid => { let b = null; S.rekap.forEach(r => { if (r.sekolahId === sid && (!b || r.updatedAt > b.updatedAt)) b = r; }); return b; };
+      const rows = sk.map(s => {
+        const l = doneOf(s.id), d = window.SILABUS.filter(p => statusOf(s.id, p.no) === 'draf').length, lr = last(s.id);
+        return `<tr data-href="#/lihat/${s.id}" class="clickrow"><td><div class="row" style="flex-wrap:nowrap;gap:12px">${ring(l, 22, 44)}<div><b>${esc(s.nama)}</b><div class="tiny muted">${esc(s.ksNama || 'Kepala sekolah belum diisi')}</div></div></div></td>
+          <td>${fasilChips(s)}</td><td><span class="pill lengkap">${l} lengkap</span> ${d ? `<span class="pill draf">${d} draf</span>` : ''}</td>
+          <td class="small">${lr ? `P${lr.no} · ${esc(String(lr.updatedBy || '').split(',')[0])}<div class="tiny muted">${fmtWaktu(lr.updatedAt)}</div>` : '<span class="muted">—</span>'}</td>
+          <td>${ic('arrowR')}</td></tr>`;
+      }).join('');
+      const fas = fasilUsers().map(u => {
+        const sks = sk.filter(s => inFasil(s, u.username));
+        const l = sks.reduce((a, s) => a + doneOf(s.id), 0), t = sks.length * 22;
+        return { u, sks, l, t };
+      });
+      app.innerHTML = pageHead('Lihat Laporan', 'Pantau perkembangan laporan setiap sekolah dan fasilitator. Klik sekolah untuk melihat laporannya.') + `
+        <div class="stats" style="margin-bottom:18px"><div class="stat"><b>${sk.length}</b><span>sekolah binaan</span></div><div class="stat ok"><b>${lengkap}</b><span>laporan lengkap</span></div>
+          <div class="stat warn"><b>${draf}</b><span>masih draf</span></div><div class="stat gold"><b>${tot ? Math.round(lengkap / tot * 100) : 0}%</b><span>progres program (${lengkap}/${tot})</span></div></div>
+        ${sk.length ? `<div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table class="tb"><thead><tr><th>Sekolah</th><th>Fasilitator</th><th>Status</th><th>Terakhir diperbarui</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div>`
+          : emptyState('school', 'Belum ada sekolah binaan', isAdmin() ? 'Tambahkan di menu Data Sekolah.' : '')}
+        ${fas.length ? `<div class="sec"><h2>Per fasilitator</h2></div><div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table class="tb"><thead><tr><th>Fasilitator</th><th>Sekolah binaan</th><th style="width:30%">Progres</th></tr></thead><tbody>
+          ${fas.map(x => `<tr><td><b>${esc(x.u.nama)}</b></td><td class="small">${esc(x.sks.map(s => s.nama).join(', ') || '—')}</td>
+            <td>${x.t ? `<div class="row" style="flex-wrap:nowrap"><div class="bar" style="flex:1"><i style="width:${x.l / x.t * 100}%"></i></div><span class="small"><b>${x.l}</b>/${x.t}</span></div>` : '<span class="muted small">belum ditugaskan</span>'}</td></tr>`).join('')}
+          </tbody></table></div></div>` : ''}`;
+    };
+    draw();
+    if (await refreshRekap(true)) { if (location.hash === '#/lihat') draw(); }
   }
 
   /* =========================================================
@@ -1319,9 +1401,12 @@
   /* =========================================================
    * EVENT
    * ========================================================= */
-  const EDIT_ACTS = new Set(['tempat-sekolah', 'hadir', 'hadir-all', 'hadir-none', 'add-peserta', 'imp-cancel', 'imp-apply', 'tes-del', 'akt-toggle', 'akt-del', 'akt-add', 'keg-reset', 'cap', 'obs-add', 'obs-del', 'teks-reset', 'chip', 'lamp-toggle', 'img-del', 'del-report', 'conf-server', 'conf-mine', 'fh']);
+  const EDIT_ACTS = new Set(['tempat-sekolah', 'hadir', 'hadir-all', 'hadir-none', 'add-peserta', 'imp-cancel', 'imp-apply', 'tes-del', 'akt-toggle', 'akt-del', 'akt-add', 'keg-reset', 'cap', 'obs-add', 'obs-del', 'teks-reset', 'chip', 'lamp-toggle', 'img-del', 'del-report', 'conf-server', 'conf-mine', 'fh', 'cal', 'cal-nav', 'cal-day']);
 
   app.addEventListener('click', async e => {
+    const row = e.target.closest('tr[data-href]');
+    if (row) { location.hash = row.dataset.href; return; }
+    if (!e.target.closest('.datef')) { const cp = document.getElementById('calpop'); if (cp) cp.classList.remove('open'); }
     const cell = e.target.closest('[data-cell]');
     if (cell) {
       const [sid, no] = cell.dataset.cell.split('|');
@@ -1333,7 +1418,7 @@
     const b = e.target.closest('[data-act]');
     if (!b || (b.tagName === 'INPUT' && b.type !== 'checkbox')) return;
     const act = b.dataset.act, rep = S.cur, s = rep ? school(rep.sekolahId) : null;
-    if (rep && readOnly && EDIT_ACTS.has(act)) { e.preventDefault(); return; }
+    if (rep && readOnly && EDIT_ACTS.has(act) && !(act === 'del-report' && isAdmin())) { e.preventDefault(); return; }
     const editKeg = () => { if (!rep.kegiatan) rep.kegiatan = clone(R.kegiatan(rep)); return rep.kegiatan; };
     switch (act) {
       /* ---- data sekolah ---- */
@@ -1386,6 +1471,18 @@
         const sk = school(b.dataset.sid);
         sk.peserta = sk.peserta.filter(p => p.id !== b.dataset.id);
         S.open.add(sk.id); markPeserta(sk.id); renderSekolah(); break;
+      }
+      case 'cal': {
+        const pop = document.getElementById('calpop');
+        if (pop.classList.contains('open')) { pop.classList.remove('open'); break; }
+        const base = rep.tanggal ? new Date(rep.tanggal + 'T00:00:00') : new Date();
+        S.cal = { y: base.getFullYear(), m: base.getMonth() }; drawCal(); break;
+      }
+      case 'cal-nav': { let m = S.cal.m + (+b.dataset.d), y = S.cal.y; if (m < 0) { m = 11; y--; } if (m > 11) { m = 0; y++; } S.cal = { y, m }; drawCal(); break; }
+      case 'cal-day': {
+        setTanggal(b.dataset.iso);
+        const inp = document.getElementById('tgl'); if (inp) inp.value = isoToDmy(b.dataset.iso);
+        document.getElementById('calpop').classList.remove('open'); break;
       }
       case 'fh': {
         const set = R.fasilHadir(rep, s);
@@ -1464,7 +1561,7 @@
         try {
           if (rep._version > 0) await API.call('deleteReport', { key: rep.key });
           await DB.del('reports', rep.key); S.rekap.delete(rep.key); S.local.delete(rep.key); cacheBoot();
-          S.cur = null; location.hash = '#/buat/' + s.id; toast('Laporan dihapus.');
+          S.cur = null; location.hash = listHash(s.id); toast('Laporan dihapus.');
         } catch (er) { toast(er.message, true); }
         break;
       /* ---- unduh ---- */
@@ -1528,6 +1625,15 @@
       return;
     }
     if (!rep || readOnly) return;
+    if (t.dataset.date) {
+      let d = t.value.replace(/\D/g, '').slice(0, 8);
+      if (d.length > 4) d = d.slice(0, 2) + '/' + d.slice(2, 4) + '/' + d.slice(4); else if (d.length > 2) d = d.slice(0, 2) + '/' + d.slice(2);
+      if (t.value !== d) t.value = d;
+      if (!d) setTanggal('');
+      else if (d.length === 10) setTanggal(dmyToIso(d));
+      else { const h = document.getElementById('tgl-hari'); if (h) h.textContent = 'Format DD/MM/YYYY'; }
+      return;
+    }
     if (t.dataset.r) { rep[t.dataset.r] = t.value; touch(); updatePreviews(); return; }
     if (t.dataset.akt) { if (!rep.kegiatan) rep.kegiatan = clone(R.kegiatan(rep)); const [si, ai] = t.dataset.akt.split('|'); rep.kegiatan[si].aktivitas[ai].teks = t.value; touch(); return; }
     if (t.dataset.cat !== undefined) { if (!rep.kegiatan) rep.kegiatan = clone(R.kegiatan(rep)); rep.kegiatan[t.dataset.cat].catatan = t.value; touch(); return; }
@@ -1571,7 +1677,7 @@
       return;
     }
     if (!rep || readOnly) return;
-    if (t.dataset.act === 'imp-file' && t.files[0]) return importFile(t.files[0]);
+    if (t.dataset.act === 'imp-file' && t.files[0]) return importFile(t.files[0], t.dataset.mode);
     if (t.dataset.impCol) { S.imp.cols[t.dataset.impCol] = parseInt(t.value, 10); if (t.dataset.impCol === 'sekolah') autoSchools(S.imp, school(rep.sekolahId)); rerenderStep(); return; }
     if (t.dataset.impSchool !== undefined) { t.checked ? S.imp.schools.add(t.dataset.impSchool) : S.imp.schools.delete(t.dataset.impSchool); rerenderStep(); return; }
     if (t.dataset.up && t.files.length) {

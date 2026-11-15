@@ -12,7 +12,7 @@
  *   3. Deploy > New deployment > Web app (Execute as: Me, Who has access: Anyone)
  */
 
-var APP_VERSION = '2.1.0';
+var APP_VERSION = '2.2.0';
 var SCHEMA = '2.1';
 var SESSION_DAYS = 30;
 var MAX_FAIL = 5;          // salah sandi berturut-turut
@@ -350,54 +350,54 @@ function uploadKop_(req, user) {
 /* =============================================================
  * SEKOLAH & PESERTA
  * ============================================================= */
+/* Admin: tambah sekolah, ubah nama, atur Fasilitator 1 & 2.
+ * Fasilitator: hanya melengkapi kepala sekolah (nama & NIP) sekolah binaannya. */
 function saveSekolah_(req, user) {
   if (user.peran === 'pemantau') throw err_('Anda tidak berhak mengubah data sekolah.', 'FORBIDDEN');
   var isAdm = user.peran === 'admin';
   var d = req.sekolah || {};
+  var ksNama = String(d.ksNama || '').trim().slice(0, 120);
+  var ksNip = String(d.ksNip || '').replace(/[^0-9 ]/g, '').trim().slice(0, 30);
+  var alias = (d.alias || []).map(function (a) { return String(a).trim(); }).filter(String).join('|');
+  var result;
+  if (!isAdm) {
+    if (!d.id) throw err_('Sekolah binaan didaftarkan oleh admin.', 'FORBIDDEN');
+    lock_(function () {
+      var ex = rows_('Sekolah').filter(function (r) { return r.id === d.id; })[0];
+      if (!ex) throw err_('Sekolah tidak ditemukan.', 'NOTFOUND');
+      if (!inList_(ex, user)) throw err_('Sekolah ini bukan sekolah binaan Anda.', 'FORBIDDEN');
+      update_('Sekolah', ex._row, { ksNama: ksNama, ksNip: ksNip, alias: alias });
+      result = ex.id;
+    });
+    return sekolahOut_(rows_('Sekolah').filter(function (r) { return r.id === result; })[0]);
+  }
   var nama = String(d.nama || '').trim().slice(0, 120);
   if (!nama) throw err_('Nama sekolah wajib diisi.');
-  var alias = (d.alias || []).map(function (a) { return String(a).trim(); }).filter(String).join('|');
   var fasil = [];
   (d.fasil || []).forEach(function (u) {
     u = String(u || '').trim(); if (!u) return;
     var x = findUser_(u);
-    if (!x || x.aktif !== 'ya' || x.peran === 'pemantau') throw err_('Fasilitator "' + u + '" tidak ditemukan atau tidak aktif.');
+    if (!x || x.aktif !== 'ya' || x.peran !== 'fasilitator') throw err_('Fasilitator "' + u + '" tidak ditemukan atau bukan fasilitator aktif.');
     if (fasil.every(function (f) { return f.toLowerCase() !== x.username.toLowerCase(); })) fasil.push(x.username);
   });
-  var meIn = fasil.some(function (f) { return f.toLowerCase() === user.username.toLowerCase(); });
-  var result;
+  if (fasil.length > 2) throw err_('Satu sekolah dipegang paling banyak 2 fasilitator.');
   lock_(function () {
     var ex = d.id ? rows_('Sekolah').filter(function (r) { return r.id === d.id; })[0] : null;
     if (d.id && !ex) throw err_('Sekolah tidak ditemukan.', 'NOTFOUND');
-    if (!isAdm) {
-      if (ex && !inList_(ex, user)) throw err_('Sekolah ini bukan sekolah binaan Anda.', 'FORBIDDEN');
-      if (!meIn) {
-        if (ex) throw err_('Anda tidak bisa mengeluarkan diri sendiri dari sekolah binaan. Hubungi admin.');
-        fasil.unshift(user.username);
-      }
-    }
-    if (fasil.length > 2) throw err_('Satu sekolah dipegang paling banyak 2 fasilitator.');
     var dup = rows_('Sekolah').filter(function (r) { return r.nama.toLowerCase() === nama.toLowerCase() && (!ex || r.id !== ex.id); })[0];
-    if (dup) {
-      if (isAdm) throw err_('Sekolah "' + nama + '" sudah ada.');
-      if (inList_(dup, user)) throw err_('Sekolah "' + nama + '" sudah ada di daftar sekolah binaan Anda.');
-      var f1 = fasilList_(dup)[0]; var u1 = f1 ? findUser_(f1) : null;
-      throw err_('Sekolah "' + nama + '" sudah didaftarkan oleh ' + namaFasil_(dup) + ' — minta ' + (u1 ? u1.nama.split(',')[0] : 'admin') + ' memilih Anda sebagai Fasilitator 2.', 'DUPLICATE');
-    }
-    var row = { nama: nama, alias: alias, fasil: fasil.join('|'), ksNama: String(d.ksNama || '').trim().slice(0, 120),
-      ksNip: String(d.ksNip || '').replace(/[^0-9 ]/g, '').trim().slice(0, 30) };
+    if (dup) throw err_('Sekolah "' + nama + '" sudah ada.', 'DUPLICATE');
+    var row = { nama: nama, alias: alias, fasil: fasil.join('|'), ksNama: ksNama, ksNip: ksNip };
     if (ex) {
-      row.urutan = String(d.urutan || ex.urutan || 0);
       update_('Sekolah', ex._row, row);
       if (ex.nama !== nama && ex.folderId) { try { DriveApp.getFolderById(ex.folderId).setName(nama); } catch (x) { /* abaikan */ } }
-      if (ex.fasil !== row.fasil) log_(user.username, 'ubah fasilitator sekolah', nama + ': ' + row.fasil.replace('|', ', '));
+      if (ex.fasil !== row.fasil) log_(user.username, 'ubah fasilitator sekolah', nama + ': ' + (row.fasil.replace('|', ', ') || '-'));
       result = ex.id;
     } else {
       var id = 's' + Utilities.getUuid().replace(/-/g, '').slice(0, 10);
       var folder = rootFolder_().createFolder(nama);
       row.id = id; row.folderId = folder.getId(); row.urutan = String(rows_('Sekolah').length + 1);
       insert_('Sekolah', row);
-      log_(user.username, 'tambah sekolah', nama + ' (' + row.fasil.replace('|', ', ') + ')');
+      log_(user.username, 'tambah sekolah', nama + ' (' + (row.fasil.replace('|', ', ') || 'belum ada fasil') + ')');
       result = id;
     }
   });
@@ -405,12 +405,8 @@ function saveSekolah_(req, user) {
 }
 
 function deleteSekolah_(req, user) {
+  if (user.peran !== 'admin') throw err_('Hanya admin yang bisa menghapus sekolah.', 'FORBIDDEN');
   var sk = sekolahById_(req.id);
-  if (user.peran !== 'admin') {
-    if (user.peran !== 'fasilitator' || !inList_(sk, user)) throw err_('Anda tidak berhak menghapus sekolah ini.', 'FORBIDDEN');
-    var ada = rows_('Rekap').some(function (r) { return r.sekolahId === sk.id && r.fileId; });
-    if (ada) throw err_('Sekolah ini sudah punya laporan. Hanya admin yang bisa menghapusnya.', 'FORBIDDEN');
-  }
   lock_(function () {
     if (sk.folderId) trashFile_(sk.folderId, true);
     var rk = rows_('Rekap');
@@ -485,7 +481,7 @@ function saveReport_(req, user) {
   var k = parseKey_(rep.key);
   if (rep.sekolahId !== k.sekolahId || Number(rep.no) !== k.no) throw err_('Data laporan tidak cocok dengan kuncinya.', 'BAD');
   var sk = sekolahById_(k.sekolahId);
-  if (!canEdit_(user, sk)) throw err_('Laporan ini dipegang fasilitator lain. Anda hanya bisa melihat.', 'FORBIDDEN');
+  if (!canFill_(user, sk)) throw err_(user.peran === 'admin' ? 'Admin hanya bisa melihat laporan. Pengisian oleh fasilitator pemegang sekolah.' : 'Laporan ini dipegang fasilitator lain. Anda hanya bisa melihat.', 'FORBIDDEN');
   var meta = req.meta || {};
   var json = JSON.stringify(rep);
   if (json.length > 5000000) throw err_('Data laporan terlalu besar.', 'BAD');
@@ -554,7 +550,7 @@ function berkasById_(id) {
 function uploadImage_(req, user) {
   var k = parseKey_(req.key);
   var sk = sekolahById_(k.sekolahId);
-  if (!canEdit_(user, sk)) throw err_('Anda tidak berhak menambah foto pada laporan ini.', 'FORBIDDEN');
+  if (!canFill_(user, sk)) throw err_('Anda tidak berhak menambah foto pada laporan ini.', 'FORBIDDEN');
   var blob = blobFromReq_(req, 'foto.jpg');
   var id;
   lock_(function () {
@@ -587,7 +583,7 @@ function deleteImage_(req, user) {
   if (b.key === 'program') { if (user.peran !== 'admin') throw err_('Hanya admin.', 'FORBIDDEN'); }
   else {
     var sk = sekolahById_(parseKey_(b.key).sekolahId);
-    if (!canEdit_(user, sk)) throw err_('Anda tidak berhak menghapus foto ini.', 'FORBIDDEN');
+    if (!canFill_(user, sk)) throw err_('Anda tidak berhak menghapus foto ini.', 'FORBIDDEN');
   }
   lock_(function () {
     trashFile_(b.fileId);
@@ -677,8 +673,14 @@ function resetPassword_(req, user) {
 /* =============================================================
  * UTILITAS
  * ============================================================= */
+/* Data sekolah (kepala sekolah, guru): admin atau fasil pemegang. */
 function canEdit_(user, sk) {
   if (user.peran === 'admin') return true;
+  return canFill_(user, sk);
+}
+
+/* Isi laporan: hanya fasilitator pemegang sekolah. Admin hanya melihat. */
+function canFill_(user, sk) {
   return user.peran === 'fasilitator' && sk && inList_(sk, user);
 }
 

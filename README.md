@@ -1,10 +1,10 @@
-# LAPORAN CERMAT v2.1
+# LAPORAN CERMAT v2.2
 
 Aplikasi web untuk menyusun **laporan 22 pendampingan Program CERMAT** (Cerdas Numerasi dan Matematika Terapan), dipakai bersama oleh semua fasilitator.
 
 - **Data bersama di Google Drive** akun admin, dengan Google Apps Script sebagai server. Gratis.
 - **Akun masing-masing dengan peran:** Admin, Fasilitator, dan Pemantau (hanya melihat dan mengunduh).
-- **Data sekolah diisi fasilitator.** Setiap sekolah dipegang 2 fasil dengan hak setara; datanya berisi nama sekolah, nama & NIP kepala sekolah, dan data guru.
+- **Data sekolah dibagi.** Admin mendaftarkan sekolah dan memasangkan Fasilitator 1 & 2; fasilitator melengkapi nama & NIP kepala sekolah serta data guru.
 - **Jurnal kegiatan ditandatangani** kepala sekolah dan fasilitator yang hadir.
 - **Isi laporan otomatis** dari *Silabus Pendampingan CERMAT (revisi 15-11-2026)*.
 - **Nilai pretes/postes** diimpor dari Google Form; hanya baris sekolah yang dilaporkan yang diambil.
@@ -15,11 +15,24 @@ Aplikasi web untuk menyusun **laporan 22 pendampingan Program CERMAT** (Cerdas N
 
 ## Menu
 
-1. **Data Sekolah:** sekolah binaan, Fasilitator 1 & 2, kepala sekolah + NIP, dan data guru.
-2. **Buat Laporan:** pilih sekolah, lalu pendampingan 1–22, lalu isi langkah Pelaksanaan (termasuk fasil yang hadir) → Kehadiran & Nilai → Kegiatan & Capaian → Evaluasi → Lampiran, kemudian Periksa & Unduh.
-3. **Unduh Laporan:** matriks status semua sekolah, PDF per laporan, ZIP per pendampingan, dan ZIP per sekolah.
+| Admin | Fasilitator | Pemantau |
+|---|---|---|
+| Kelola Pengguna | Data Sekolah | Data Sekolah |
+| Data Sekolah | Buat Laporan | Lihat Laporan |
+| Lihat Laporan (pemantauan, hanya baca) | Unduh Laporan | Unduh Laporan |
+| Unduh Laporan | | |
 
-Melalui lingkaran nama di kanan atas: **Profil Saya** (NIP, ganti password), **Keluar**, serta khusus admin **Kelola Pengguna** dan **Pengaturan Program** (kop/logo, identitas program).
+Langkah form laporan:
+1. Pelaksanaan (fasil hadir, tanggal DD/MM/YYYY, jam, tempat)
+2. Pretes & Kehadiran
+3. Postes & Capaian (P17–19: Observasi & Capaian)
+4. Evaluasi
+5. Lampiran
+6. Periksa & Unduh
+
+Langkah pelaksanaan kegiatan selalu persis sesuai silabus.
+
+Lingkaran nama di kanan atas berisi Profil Saya, Ganti Password, dan Keluar, serta khusus admin **Pengaturan Program** (kop/logo dan identitas program).
 
 ## Format Google Form pretes/postes (Pendampingan 1–7)
 
