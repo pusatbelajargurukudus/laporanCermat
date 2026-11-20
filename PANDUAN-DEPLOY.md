@@ -1,4 +1,4 @@
-# Panduan Pemasangan LAPORAN CERMAT v2.6
+# Panduan Pemasangan LAPORAN CERMAT v2.7
 
 Aplikasi terdiri dari dua bagian:
 
@@ -98,6 +98,8 @@ Pemasangan cukup **sekali**, sekitar 15 menit.
 4. Buka aplikasi dan tekan **Ctrl+Shift+R** sekali.
 
 Data lama tetap aman. Kolom baru di Sheets ditambahkan otomatis.
+
+**Catatan v2.7 (Satu aplikasi dengan portal CERMAT):** `Code.gs` tidak berubah. Ada tombol ← kembali ke Pustaka CERMAT dan petunjuk memasang aplikasi untuk kepala sekolah.
 
 **Catatan v2.6 (Pratinjau kepala sekolah):** `Code.gs` tidak berubah dari v2.5, cukup unggah file ke GitHub. Pastikan folder baru `vendor/pdfjs/` ikut terunggah.
 

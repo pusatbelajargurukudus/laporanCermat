@@ -427,3 +427,10 @@ a.pick .pno { flex: 0 0 auto; width: 52px; height: 52px; border-radius: 12px; ba
   .pv-card { padding: 12px 10px; }
   .pv { padding: 8px; border-radius: 8px; }
 }
+
+/* ---------- Kembali ke portal Pustaka CERMAT ---------- */
+.topbar .portal { flex: 0 0 auto; width: 34px; height: 34px; margin-right: -12px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }
+.topbar .portal:hover { background: var(--navy-soft); color: var(--navy); }
+.topbar .portal svg { width: 20px; height: 20px; }
+@media (max-width: 720px) { .topbar .portal { margin-right: -6px; } }
+.btn[hidden] { display: none !important; }

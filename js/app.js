@@ -1,4 +1,4 @@
-/* LAPORAN CERMAT v2.6 — antarmuka (multi-pengguna, data di Google Drive lewat Apps Script). */
+/* LAPORAN CERMAT v2.7 — antarmuka (multi-pengguna, data di Google Drive lewat Apps Script). */
 (function () {
   const R = window.Report, I = window.Importer;
   const app = document.getElementById('app');
@@ -458,6 +458,7 @@
         ${msg ? `<div class="banner bad small" style="margin:14px 0 0">${ic('alert')}<div>${esc(msg)}</div></div>` : ''}
         <button class="btn pri block" style="margin-top:20px;height:46px" id="lb">Masuk</button>
         <p class="tiny muted" style="margin-top:18px;text-align:center">Lupa password? Hubungi admin program.</p>
+        <p class="small" style="margin-top:6px;text-align:center"><a href="../cermat/">${ic('arrowL')} Kembali ke Pustaka CERMAT</a></p>
       </form></div></div>`;
     document.getElementById('lu').focus();
     document.getElementById('loginForm').addEventListener('submit', async e => {
@@ -1568,6 +1569,25 @@
   /* =========================================================
    * PENGESAHAN (kepala sekolah)
    * ========================================================= */
+  /* Petunjuk memasang aplikasi (PWA) di HP — tidak tampil bila sudah terpasang atau sudah ditutup. */
+  let installEvt = null;
+  window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; const b = document.getElementById('instNow'); if (b) b.hidden = false; });
+  window.addEventListener('appinstalled', () => { installEvt = null; const c = document.getElementById('instCard'); if (c) c.remove(); });
+  const isInstalled = () => (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+  function installHint() {
+    let tutup = false; try { tutup = localStorage.getItem('cermat_install_tutup') === '1'; } catch (e) { /* abaikan */ }
+    if (isInstalled() || tutup) return '';
+    const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    return `<div class="banner info small" id="instCard" style="margin-bottom:18px">${ic('download')}<div><b>Pasang aplikasi ini di HP Anda</b> supaya bisa dibuka langsung dari layar utama, seperti aplikasi biasa.
+      <div style="margin-top:6px">${ios ? 'Di Safari: ketuk tombol <b>Bagikan</b> lalu pilih <b>Tambahkan ke Layar Utama</b>.'
+        : 'Di Chrome HP: ketuk menu <b>⋮</b> lalu pilih <b>Instal aplikasi</b> (atau <b>Tambahkan ke layar utama</b>). Di laptop: klik ikon instal di ujung kanan kolom alamat.'}</div>
+      <div class="row" style="margin-top:10px"><button class="btn sm pri" id="instNow" data-inst="now"${installEvt ? '' : ' hidden'}>${ic('download')}Pasang sekarang</button><button class="btn sm ghost" data-inst="tutup">Tutup petunjuk</button></div></div></div>`;
+  }
+  document.addEventListener('click', async e => {
+    const b = e.target.closest('[data-inst]'); if (!b) return;
+    if (b.dataset.inst === 'tutup') { try { localStorage.setItem('cermat_install_tutup', '1'); } catch (er) { /* abaikan */ } const c = document.getElementById('instCard'); if (c) c.remove(); return; }
+    if (installEvt) { installEvt.prompt(); try { await installEvt.userChoice; } catch (er) { /* abaikan */ } installEvt = null; b.hidden = true; }
+  });
   async function renderPengesahan() {
     const draw = () => {
       const sk = S.sekolah.find(x => x.id === S.user.sekolahId) || S.sekolah[0];
@@ -1582,7 +1602,7 @@
         <div style="min-width:0;flex:1"><h3>${esc(x.p.judul)}</h3><div class="meta">${tgl(x)}</div>
         <div class="meta" style="margin-top:6px">${x.st.fasil.map(f => `<span class="pill ${f.rec ? 'lengkap' : 'kosong'}">${f.rec ? '✓' : '…'} ${esc(namaUser(f.u).split(',')[0])}</span>`).join(' ')}
           ${x.st.ks ? `<span class="pill lengkap">✓ Disahkan ${fmtWaktu(x.st.ks.waktu)}</span>` : ''}${btn ? `<span class="pill navy">${btn}</span>` : ''}</div></div>${ic('arrowR')}</a>`;
-      app.innerHTML = head + `
+      app.innerHTML = head + installHint() + `
         <div class="stats" style="margin-bottom:18px"><div class="stat gold"><b>${menunggu.length}</b><span>menunggu pengesahan Anda</span></div>
           <div class="stat"><b>${fasilBelum.length}</b><span>menunggu fasilitator</span></div>
           <div class="stat ok"><b>${sudah.length}</b><span>sudah Anda sahkan</span></div>
