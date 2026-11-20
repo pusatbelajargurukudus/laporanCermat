@@ -12,13 +12,15 @@
  *   3. Deploy > New deployment > Web app (Execute as: Me, Who has access: Anyone)
  */
 
-var APP_VERSION = '2.5.0';
+var APP_VERSION = '2.8.0';
 var SCHEMA = '2.3';
 var SESSION_DAYS = 30;
 var MAX_FAIL = 5;          // salah sandi berturut-turut
 var LOCK_SECONDS = 600;    // lama kunci setelah salah sandi (detik)
 var HASH_ROUNDS = 120;
-var ROLES = ['admin', 'fasilitator', 'pemantau', 'kepsek'];
+var ROLES = ['admin', 'fasilitator', 'pemantau', 'kepsek', 'guru'];
+/* Akun guru (satu akun dipakai bersama per sekolah) hanya untuk masuk portal CERMAT. */
+var GURU_ACTIONS = ['bootstrap', 'me', 'logout'];
 var PROGRAM_KEYS = ['program', 'programKepanjangan', 'penyelenggara', 'kota', 'kopId'];
 
 var SHEETS = {
@@ -103,6 +105,7 @@ function doPost(e) {
       user = auth_(req.token);
       if (!user) return out_({ ok: false, code: 'AUTH', error: 'Sesi berakhir. Silakan masuk lagi.' });
       if (act.role && user.peran !== act.role) throw err_('Anda tidak berhak melakukan ini.', 'FORBIDDEN');
+      if (user.peran === 'guru' && GURU_ACTIONS.indexOf(req.action) < 0) throw err_('Akun guru hanya untuk membuka Pustaka CERMAT.', 'FORBIDDEN');
     }
     return out_({ ok: true, data: act.fn(req, user) });
   } catch (x) {
@@ -118,6 +121,7 @@ var ACTIONS = {
   login: { pub: true, fn: login_ },
   logout: { fn: function (req, user) { removeSession_(req.token); return true; } },
   bootstrap: { fn: bootstrap_ },
+  me: { fn: function (req, user) { return publicUser_(user); } },
   rekap: { fn: function (req, user) { return rekapList_(user); } },
   changePassword: { fn: changePassword_ },
 
@@ -217,6 +221,7 @@ function removeUserSessions_(username, exceptTh) {
 }
 
 function changePassword_(req, user) {
+  if (user.peran === 'guru') throw err_('Password akun guru dipakai bersama dan hanya bisa diganti admin.', 'FORBIDDEN');
   if (hash_(user.salt, String(req.old || '')) !== user.hash) throw err_('Password lama salah.');
   checkPw_(req.baru);
   lock_(function () { setPassword_(user, req.baru); removeUserSessions_(user.username, user._th); });
@@ -253,6 +258,7 @@ function publicUser_(u) {
 }
 
 function saveProfile_(req, user) {
+  if (user.peran === 'guru') throw err_('Profil akun guru diatur oleh admin.', 'FORBIDDEN');
   var nip = String(req.nip || '').replace(/[^0-9 ]/g, '').trim().slice(0, 30);
   lock_(function () { update_('Pengguna', findUser_(user.username)._row, { nip: nip }); });
   return publicUser_(findUser_(user.username));
@@ -281,6 +287,9 @@ function findUser_(uname) {
  * ============================================================= */
 function bootstrap_(req, user) {
   var prog = readProgram_();
+  if (user.peran === 'guru') {
+    return { serverVersion: APP_VERSION, user: publicUser_(user), program: prog, sekolah: [], peserta: [], pengguna: [], rekap: [], pengesahan: [] };
+  }
   var ok = function (sid) { return seesSekolah_(user, sid); };
   return {
     serverVersion: APP_VERSION,
@@ -296,6 +305,7 @@ function bootstrap_(req, user) {
 
 /* Kepala sekolah hanya melihat sekolahnya sendiri; peran lain melihat semua. */
 function seesSekolah_(user, sid) {
+  if (user && user.peran === 'guru') return false;
   if (!user || user.peran !== 'kepsek') return true;
   return !!user.sekolahId && String(user.sekolahId) === String(sid);
 }
@@ -688,9 +698,9 @@ function saveUser_(req, user) {
   var aktif = d.aktif === false ? 'tidak' : 'ya';
   var nip = String(d.nip || '').replace(/[^0-9 ]/g, '').trim().slice(0, 30);
   var sekolahId = '';
-  if (peran === 'kepsek') {
+  if (peran === 'kepsek' || peran === 'guru') {
     sekolahId = String(d.sekolahId || '');
-    if (!sekolahId) throw err_('Pilih sekolah untuk akun Kepala Sekolah.');
+    if (!sekolahId) throw err_('Pilih sekolah untuk akun ' + (peran === 'guru' ? 'Guru' : 'Kepala Sekolah') + '.');
     sekolahById_(sekolahId);
   }
   var info = {};

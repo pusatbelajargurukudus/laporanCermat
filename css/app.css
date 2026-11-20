@@ -434,3 +434,10 @@ a.pick .pno { flex: 0 0 auto; width: 52px; height: 52px; border-radius: 12px; ba
 .topbar .portal svg { width: 20px; height: 20px; }
 @media (max-width: 720px) { .topbar .portal { margin-right: -6px; } }
 .btn[hidden] { display: none !important; }
+
+/* ---------- Kolom password dengan tombol mata ---------- */
+.pwf { position: relative; }
+.pwf input { padding-right: 44px; }
+.pwf .eyebtn { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 36px; height: 36px; border: 0; background: none; border-radius: 8px; color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.pwf .eyebtn:hover { background: var(--navy-soft); color: var(--navy); }
+.pwf .eyebtn .ic { position: static; transform: none; }

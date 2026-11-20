@@ -1,4 +1,4 @@
-/* LAPORAN CERMAT v2.7 — antarmuka (multi-pengguna, data di Google Drive lewat Apps Script). */
+/* LAPORAN CERMAT v2.8 — antarmuka (multi-pengguna, data di Google Drive lewat Apps Script). */
 (function () {
   const R = window.Report, I = window.Importer;
   const app = document.getElementById('app');
@@ -6,7 +6,8 @@
   const JABATAN = ['', 'Kepala Sekolah', 'Guru Kelas', 'Guru Mapel', 'Tenaga Kependidikan'];
   const JABATAN_GURU = ['Guru Kelas', 'Guru Mapel', 'Tenaga Kependidikan', 'Kepala Sekolah'];
   const KELAS = ['', '1', '2', '3', '4', '5', '6'];
-  const PERAN = { admin: 'Admin', fasilitator: 'Fasilitator', pemantau: 'Pemantau', kepsek: 'Kepala Sekolah' };
+  const PERAN = { admin: 'Admin', fasilitator: 'Fasilitator', pemantau: 'Pemantau', kepsek: 'Kepala Sekolah', guru: 'Guru' };
+  const PORTAL = '../cermat/';
   const eqU = (a, b) => String(a || '').toLowerCase() === String(b || '').toLowerCase();
 
   const S = {
@@ -36,6 +37,7 @@
     alert: '<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>',
     info: '<circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/>',
     eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+    eyeoff: '<path d="M3 3l18 18"/><path d="M10.6 5.1A9.7 9.7 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.2 4M6.5 6.6C3.7 8.4 2 12 2 12s3.5 7 10 7c1.6 0 3-.4 4.3-1"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>',
     trash: '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>',
     arrowR: '<path d="M5 12h14M13 6l6 6-6 6"/>',
     arrowL: '<path d="M19 12H5M11 18l-6-6 6-6"/>',
@@ -47,6 +49,18 @@
     minus: '<path d="M5 12h14"/>'
   };
   const ic = (n, cls) => `<svg class="ic ${cls || ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[n] || ''}</svg>`;
+  /* Kolom password dengan tombol mata (lihat/sembunyikan). */
+  const pwField = (id, auto, extra) => `<div class="pwf">${extra || ''}<input type="password" id="${id}" autocomplete="${auto}"${extra ? ' required' : ''}><button type="button" class="eyebtn" data-eye="${id}" title="Lihat password" aria-label="Lihat password">${ic('eye')}</button></div>`;
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-eye]'); if (!b) return;
+    e.preventDefault();
+    const inp = document.getElementById(b.dataset.eye); if (!inp) return;
+    const show = inp.type === 'password';
+    inp.type = show ? 'text' : 'password';
+    b.innerHTML = ic(show ? 'eyeoff' : 'eye');
+    b.title = show ? 'Sembunyikan password' : 'Lihat password'; b.setAttribute('aria-label', b.title);
+    inp.focus();
+  });
   function ring(done, total, size) {
     size = size || 54; const r = (size - 8) / 2, c = 2 * Math.PI * r, p = total ? done / total : 0;
     return `<div class="ring" style="width:${size}px;height:${size}px"><svg width="${size}" height="${size}"><circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="#edf0f5" stroke-width="6"/>` +
@@ -454,7 +468,7 @@
         <img class="mlogo" src="icons/logo-cermat.png" alt="Logo CERMAT">
         <h1>Selamat datang</h1><p class="muted" style="margin:0 0 22px">Masuk dengan akun yang diberikan admin.</p>
         <label class="f" for="lu">Username</label><div class="field-ic">${ic('user')}<input type="text" id="lu" autocomplete="username" required></div>
-        <label class="f" for="lp" style="margin-top:14px">Password</label><div class="field-ic">${ic('lock')}<input type="password" id="lp" autocomplete="current-password" required></div>
+        <label class="f" for="lp" style="margin-top:14px">Password</label><div class="field-ic">${pwField('lp', 'current-password', ic('lock'))}</div>
         ${msg ? `<div class="banner bad small" style="margin:14px 0 0">${ic('alert')}<div>${esc(msg)}</div></div>` : ''}
         <button class="btn pri block" style="margin-top:20px;height:46px" id="lb">Masuk</button>
         <p class="tiny muted" style="margin-top:18px;text-align:center">Lupa password? Hubungi admin program.</p>
@@ -474,6 +488,9 @@
   }
 
   async function boot(fresh) {
+    // token berganti (login/logout di portal CERMAT): jangan tampilkan salinan lokal sebelum server memastikan siapa penggunanya
+    const lastTok = await DB.get('kv', 'tok');
+    if (lastTok && lastTok !== API.token) fresh = true;
     S.pesertaDirty = new Set((await DB.get('kv', 'pesertaDirty')) || []);
     S.delQueue = (await DB.get('kv', 'delQueue')) || [];
     const prevBoot = await DB.get('kv', 'boot');
@@ -483,7 +500,9 @@
     else app.innerHTML = '<div class="loading"><span class="spin"></span> Memuat data…</div>';
     try {
       const b = await API.call('bootstrap');
-      if (cached && !eqU(cached.user.username, b.user.username)) { await DB.wipe(); S.pesertaDirty = new Set(); S.delQueue = []; }
+      // pengguna berbeda dari salinan lokal -> salinan lama dihapus; pengguna sama -> perubahan yang belum terkirim tetap aman
+      if (prevBoot && !eqU(prevBoot.user.username, b.user.username)) { await DB.wipe(); S.pesertaDirty = new Set(); S.delQueue = []; }
+      await kvSet('tok', API.token);
       applyBoot(b); S.lastRekap = Date.now();
       await kvSet('boot', b);
       cacheBoot();
@@ -511,7 +530,7 @@
     const n = await Sync.count();
     if (n && !confirm(`Masih ada ${n} perubahan yang belum terkirim ke Drive dan akan hilang. Tetap keluar?`)) return;
     try { await API.call('logout'); } catch (e) { /* abaikan */ }
-    API.token = null; localStorage.removeItem('cermat_token');
+    API.token = null; localStorage.removeItem('cermat_token'); try { localStorage.removeItem('cermat_user'); } catch (e) { /* abaikan */ }
     await DB.wipe(); S.user = null; S.cur = null; S.imgCache.clear();
     location.hash = '#/';
     renderLogin();
@@ -560,6 +579,7 @@
   async function route() {
     if (!API.configured()) return renderConfigMissing();
     if (!S.user) return renderLogin();
+    if (S.user.peran === 'guru') { app.innerHTML = '<div class="loading"><span class="spin"></span> Membuka Pustaka CERMAT…</div>'; location.replace(PORTAL); return; }
     document.body.classList.remove('auth');
     const h = location.hash.replace(/^#\/?/, '');
     const parts = h.split(/[/#]/);
@@ -1677,7 +1697,7 @@
    * ========================================================= */
   const skOfUser = u => S.sekolah.filter(s => inFasil(s, u.username)).map(s => s.nama);
   async function renderPengguna() {
-    const head = pageHead('Kelola Pengguna', 'Akun admin, fasilitator, kepala sekolah, dan pemantau.', `<button class="btn pri" data-act="user-new">${ic('plus')}Tambah pengguna</button>`);
+    const head = pageHead('Kelola Pengguna', 'Akun admin, fasilitator, kepala sekolah, guru, dan pemantau.', `<button class="btn pri" data-act="user-new">${ic('plus')}Tambah pengguna</button>`);
     app.innerHTML = head + '<div class="loading"><span class="spin"></span> Memuat…</div>';
     let users, usage = null;
     try { users = await API.call('listUsers'); } catch (e) { app.innerHTML = head + emptyState('alert', 'Gagal memuat', esc(e.message)); return; }
@@ -1685,7 +1705,7 @@
     S.users = users;
     S.pengguna = users.map(u => ({ username: u.username, nama: u.nama, peran: u.peran, aktif: u.aktif, nip: u.nip, sekolahId: u.sekolahId || '' })); cacheBoot();
     const pct = usage ? Math.round(usage.used / usage.limit * 1000) / 10 : 0;
-    const order = { admin: 0, fasilitator: 1, kepsek: 2, pemantau: 3 };
+    const order = { admin: 0, fasilitator: 1, kepsek: 2, guru: 3, pemantau: 4 };
     const list = users.slice().sort((a, b) => (order[a.peran] - order[b.peran]) || a.nama.localeCompare(b.nama, 'id'));
     app.innerHTML = head + `
       <div class="card" style="padding:0;overflow:hidden"><div class="ulist">
@@ -1696,7 +1716,7 @@
             <span class="bubble">${esc(initials(u.nama))}</span>
             <div class="um"><b>${esc(u.nama)}</b><span>${esc(u.username)}${u.nip ? ' · NIP ' + esc(u.nip) : ''}${eqU(u.username, S.user.username) ? ' · <i>Anda</i>' : ''}</span></div>
             <div class="ur"><span class="pill ${u.peran === 'admin' ? 'navy' : u.peran === 'fasilitator' ? 'gold' : u.peran === 'kepsek' ? 'tunggu' : 'kosong'}">${PERAN[u.peran]}</span>${u.aktif ? '' : ' <span class="pill draf">nonaktif</span>'}</div>
-            <div class="us small">${u.peran === 'kepsek' ? (school(u.sekolahId) ? 'Kepala ' + esc(school(u.sekolahId).nama) : '<span class="muted">sekolah belum dipilih</span>') : sks.length ? esc(sks.join(', ')) : '<span class="muted">—</span>'}
+            <div class="us small">${u.peran === 'kepsek' || u.peran === 'guru' ? (school(u.sekolahId) ? (u.peran === 'guru' ? 'Guru ' : 'Kepala ') + esc(school(u.sekolahId).nama) : '<span class="muted">sekolah belum dipilih</span>') : sks.length ? esc(sks.join(', ')) : '<span class="muted">—</span>'}
               ${salah ? `<div class="warnline">${ic('alert')} Peran ${PERAN[u.peran]} tidak bisa mengisi laporan sekolah ini</div>` : ''}</div>
             <div class="ul tiny muted">${u.terakhirLogin ? 'Login ' + fmtWaktu(Date.parse(u.terakhirLogin)) : 'Belum pernah login'}</div>
             <button class="btn sm" data-act="user-edit" data-u="${esc(u.username)}">${ic('edit')}Edit</button>
@@ -1708,6 +1728,7 @@
           <li><b>Admin</b> — mengelola pengguna, pengaturan program, sekolah binaan & pasangan fasilitator; melihat semua laporan.</li>
           <li><b>Fasilitator</b> — melengkapi data sekolah binaannya & mengisi laporannya; melihat & mengunduh semua laporan.</li>
           <li><b>Kepala Sekolah</b> — melihat laporan sekolahnya sendiri dan mengesahkannya setelah kedua fasilitator mengesahkan.</li>
+          <li><b>Guru</b> — satu akun bersama per sekolah; hanya membuka Pustaka CERMAT (folder bertanda "untuk Guru").</li>
           <li><b>Pemantau</b> — hanya melihat & mengunduh.</li></ul></div>
         ${usage ? `<div class="card"><div class="card-h">${ic('cloud')}<h3>Penyimpanan Google Drive admin</h3></div><div class="bar big"><i style="width:${Math.min(100, pct)}%"></i></div>
           <p class="small" style="margin:10px 0 0">${(usage.used / 1073741824).toFixed(2)} GB dari ${(usage.limit / 1073741824).toFixed(0)} GB terpakai (${pct}%) — termasuk Gmail & Google Photos akun admin.</p></div>` : ''}
@@ -1726,11 +1747,11 @@
         <div class="grid2">
           <div><label class="f">Username</label><input type="text" id="um-user" value="${esc(u ? u.username : '')}" placeholder="mis. anton" autocomplete="off">
             <div class="tiny muted" style="margin-top:4px">3–30 karakter, tanpa spasi</div></div>
-          <div><label class="f">Peran</label><select id="um-peran"${self ? ' disabled' : ''}>${opts(['fasilitator', 'kepsek', 'pemantau', 'admin'], u ? u.peran : 'fasilitator', ['Fasilitator', 'Kepala Sekolah', 'Pemantau', 'Admin'])}</select></div>
+          <div><label class="f">Peran</label><select id="um-peran"${self ? ' disabled' : ''}>${opts(['fasilitator', 'kepsek', 'guru', 'pemantau', 'admin'], u ? u.peran : 'fasilitator', ['Fasilitator', 'Kepala Sekolah', 'Guru (akun bersama per sekolah)', 'Pemantau', 'Admin'])}</select></div>
         </div>
-        <div id="um-skwrap" style="margin-top:14px;display:none"><label class="f">Sekolah yang dipimpin</label>
+        <div id="um-skwrap" style="margin-top:14px;display:none"><label class="f" id="um-sklbl">Sekolah</label>
           <select id="um-sk"><option value="">— pilih sekolah —</option>${S.sekolah.map(x => `<option value="${x.id}"${u && u.sekolahId === x.id ? ' selected' : ''}>${esc(x.nama)}${x.ksNama ? ' · KS: ' + esc(x.ksNama) : ''}</option>`).join('')}</select>
-          <div class="tiny muted" style="margin-top:4px">Kepala sekolah hanya melihat laporan sekolah ini dan mengesahkannya. Nama & NIP akun ini yang tercetak di Lembar Pengesahan.</div></div>
+          <div class="tiny muted" style="margin-top:4px" id="um-skhint"></div></div>
         <div style="margin-top:14px"><label class="f">Nama lengkap (dengan gelar)</label><input type="text" id="um-nama" value="${esc(u ? u.nama : '')}" placeholder="Anton Widiyatmoko, S.Pd., M.Pd."></div>
         <div class="grid2" style="margin-top:14px">
           <div><label class="f">NIP (opsional)</label><input type="text" id="um-nip" value="${esc(u ? u.nip : '')}" inputmode="numeric"></div>
@@ -1747,7 +1768,11 @@
     document.body.appendChild(bg);
     const $ = id => bg.querySelector('#' + id);
     const warn = () => {
-      $('um-skwrap').style.display = $('um-peran').value === 'kepsek' ? 'block' : 'none';
+      const pr = $('um-peran').value;
+      $('um-skwrap').style.display = pr === 'kepsek' || pr === 'guru' ? 'block' : 'none';
+      $('um-sklbl').textContent = pr === 'guru' ? 'Sekolah (akun dipakai bersama semua guru sekolah ini)' : 'Sekolah yang dipimpin';
+      $('um-skhint').textContent = pr === 'guru' ? 'Akun guru hanya bisa membuka Pustaka CERMAT dan melihat folder yang ditandai "untuk Guru". Password hanya bisa diganti admin. Contoh username: guru.nawakartika'
+        : 'Kepala sekolah hanya melihat laporan sekolah ini dan mengesahkannya. Nama & NIP akun ini yang tercetak di Lembar Pengesahan.';
       const w = $('um-warn'); const msgs = [];
       const nu = $('um-user').value.trim();
       if (u && nu && nu !== u.username) msgs.push(`Username <b>${esc(u.username)}</b> akan diganti menjadi <b>${esc(nu)}</b>. Sekolah, laporan, dan sesi login ikut diperbarui otomatis. Sampaikan username baru ke yang bersangkutan.`);
@@ -1764,7 +1789,7 @@
       if (act === 'save') {
         const d = { mode: create ? 'create' : 'edit', username: create ? $('um-user').value.trim() : u.username, nama: $('um-nama').value.trim(),
           nip: $('um-nip').value, peran: $('um-peran').value, sekolahId: $('um-sk').value };
-        if (d.peran === 'kepsek' && !d.sekolahId) return toast('Pilih sekolah untuk akun Kepala Sekolah.', true);
+        if ((d.peran === 'kepsek' || d.peran === 'guru') && !d.sekolahId) return toast('Pilih sekolah untuk akun ' + PERAN[d.peran] + '.', true);
         if (create) { d.password = $('um-pass').value; d.aktif = true; }
         else { d.aktif = (bg.querySelector('input[name="um-aktif"]:checked') || {}).value !== '0'; const nu = $('um-user').value.trim(); if (nu !== u.username) d.newUsername = nu; }
         if (!d.username || !d.nama) return toast('Isi username dan nama lengkap.', true);
@@ -1812,9 +1837,9 @@
           ${mine.length ? `<div class="subhead">${ic('school')}<h4>Sekolah binaan</h4></div><div class="small">${mine.map(s => esc(s.nama)).join(' · ')}</div>` : ''}
           <div class="subhead">${ic('cloud')}<h4>Sinkronisasi</h4></div><div class="small">${n ? n + ' perubahan menunggu terkirim ke Google Drive' : 'Semua perubahan sudah tersimpan di Google Drive.'}</div></div>
         <div class="card" id="pw"><div class="card-h">${ic('lock')}<h2>Ganti password</h2></div>
-          <label class="f">Password lama</label><input type="password" id="pw-old" autocomplete="current-password">
-          <label class="f" style="margin-top:12px">Password baru (min. 6 karakter)</label><input type="password" id="pw-new" autocomplete="new-password">
-          <label class="f" style="margin-top:12px">Ulangi password baru</label><input type="password" id="pw-new2" autocomplete="new-password">
+          <label class="f">Password lama</label>${pwField('pw-old', 'current-password')}
+          <label class="f" style="margin-top:12px">Password baru (min. 6 karakter)</label>${pwField('pw-new', 'new-password')}
+          <label class="f" style="margin-top:12px">Ulangi password baru</label>${pwField('pw-new2', 'new-password')}
           <button class="btn pri" data-act="pw-change" style="margin-top:16px">Simpan password</button>
           <p class="tiny muted" style="margin:10px 0 0">Perangkat lain yang memakai akun ini akan otomatis keluar.</p></div>
       </div>

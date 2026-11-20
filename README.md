@@ -1,9 +1,10 @@
-# LAPORAN CERMAT v2.7
+# LAPORAN CERMAT v2.8
 
 Aplikasi web untuk menyusun **laporan 22 pendampingan Program CERMAT** (Cerdas Numerasi dan Matematika Terapan), dipakai bersama oleh semua fasilitator.
 
 - **Data bersama di Google Drive** akun admin, dengan Google Apps Script sebagai server. Gratis.
-- **Akun masing-masing dengan peran:** Admin, Fasilitator, Kepala Sekolah, dan Pemantau (hanya melihat dan mengunduh).
+- **Akun masing-masing dengan peran:** Admin, Fasilitator, Kepala Sekolah, Guru (satu akun bersama per sekolah, hanya untuk portal CERMAT), dan Pemantau (hanya melihat dan mengunduh).
+- **Login bersama dengan portal Pustaka CERMAT.** Login sekali di portal berlaku juga di LAPORAN CERMAT (situs yang sama).
 - **Pengesahan elektronik (QR).** Fasilitator 1 & 2 mengesahkan dari akun masing-masing, lalu Kepala Sekolah. Kode QR tercetak di *Lembar Pengesahan* (setelah sampul) dan *Jurnal Kegiatan*; pindai untuk membuka halaman verifikasi. Laporan yang sudah disahkan terkunci; membuka kuncinya membatalkan semua pengesahan.
 - **Pratinjau langsung untuk kepala sekolah.** Membuka laporan menampilkan kotak pengesahan dan halaman-halaman PDF di dalam aplikasi (juga di HP dan aplikasi yang diinstal), bisa diperbesar.
 - **Bisa diinstal (PWA).** Android/Chrome: menu ⋮ → *Instal aplikasi*. iPhone/Safari: *Bagikan → Tambahkan ke Layar Utama*. Laptop/Chrome: ikon instal di kolom alamat.
