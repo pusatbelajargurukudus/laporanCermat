@@ -1,4 +1,4 @@
-/* LAPORAN CERMAT v2.8 — antarmuka (multi-pengguna, data di Google Drive lewat Apps Script). */
+/* LAPORAN CERMAT v2.8.1 — antarmuka (multi-pengguna, data di Google Drive lewat Apps Script). */
 (function () {
   const R = window.Report, I = window.Importer;
   const app = document.getElementById('app');
@@ -488,20 +488,33 @@
   }
 
   async function boot(fresh) {
+    const hash0 = location.hash;   // alamat yang diminta (sebelum diarahkan ke beranda salinan lokal)
     // token berganti (login/logout di portal CERMAT): jangan tampilkan salinan lokal sebelum server memastikan siapa penggunanya
     const lastTok = await DB.get('kv', 'tok');
-    if (lastTok && lastTok !== API.token) fresh = true;
+    if (lastTok && lastTok !== API.token) {
+      // portal CERMAT menyimpan siapa pemilik token ini; bila sama dengan salinan lokal, salinan itu boleh langsung dipakai
+      let pu = null; try { pu = JSON.parse(localStorage.getItem('cermat_user') || 'null'); } catch (e) { pu = null; }
+      const pb = await DB.get('kv', 'boot');
+      const same = pu && API.token && pu._t === String(API.token).slice(-16) && pb && pb.user && eqU(pb.user.username, pu.username);
+      if (!same) fresh = true;
+    }
     S.pesertaDirty = new Set((await DB.get('kv', 'pesertaDirty')) || []);
     S.delQueue = (await DB.get('kv', 'delQueue')) || [];
     const prevBoot = await DB.get('kv', 'boot');
     if (fresh && prevBoot && S.user && !eqU(prevBoot.user.username, S.user.username)) { await DB.wipe(); S.pesertaDirty = new Set(); S.delQueue = []; }
     const cached = fresh ? null : prevBoot;
-    if (cached) { applyBoot(cached); await loadLocalStatus(); document.body.classList.remove('auth'); setNav(); }
+    let routed = false, userChanged = false;
+    if (cached) {
+      // tampilkan dulu dari salinan di perangkat; data terbaru menyusul di belakang layar
+      applyBoot(cached); await loadLocalStatus(); document.body.classList.remove('auth'); setNav();
+      if (!location.hash || location.hash === '#/' || location.hash === '#/login') location.hash = homeHash();
+      routed = true; route();
+    }
     else app.innerHTML = '<div class="loading"><span class="spin"></span> Memuat data…</div>';
     try {
       const b = await API.call('bootstrap');
       // pengguna berbeda dari salinan lokal -> salinan lama dihapus; pengguna sama -> perubahan yang belum terkirim tetap aman
-      if (prevBoot && !eqU(prevBoot.user.username, b.user.username)) { await DB.wipe(); S.pesertaDirty = new Set(); S.delQueue = []; }
+      if (prevBoot && !eqU(prevBoot.user.username, b.user.username)) { await DB.wipe(); S.pesertaDirty = new Set(); S.delQueue = []; S.cur = null; userChanged = true; }
       await kvSet('tok', API.token);
       applyBoot(b); S.lastRekap = Date.now();
       await kvSet('boot', b);
@@ -515,8 +528,13 @@
     await loadLocalStatus();
     document.body.classList.remove('auth');
     setNav();
-    if (!location.hash || location.hash === '#/' || location.hash === '#/login') location.hash = homeHash();
-    route();
+    if (userChanged) {
+      const want = !hash0 || hash0 === '#/' || hash0 === '#/login' ? homeHash() : hash0;
+      if (location.hash !== want) { location.hash = want; Sync.run(); return; }   // hashchange memanggil route()
+    } else if (!location.hash || location.hash === '#/' || location.hash === '#/login') location.hash = homeHash();
+    // halaman daftar digambar ulang dengan data terbaru; editor, formulir akun/program, dan Kelola Pengguna tidak diganggu
+    const top = location.hash.replace(/^#\/?/, '').split(/[/#]/)[0];
+    if (!routed || userChanged || (!['laporan', 'akun', 'program', 'pengguna'].includes(top) && !document.activeElement.matches('input,textarea,select'))) route();
     Sync.run();
   }
 
@@ -1699,12 +1717,12 @@
   async function renderPengguna() {
     const head = pageHead('Kelola Pengguna', 'Akun admin, fasilitator, kepala sekolah, guru, dan pemantau.', `<button class="btn pri" data-act="user-new">${ic('plus')}Tambah pengguna</button>`);
     app.innerHTML = head + '<div class="loading"><span class="spin"></span> Memuat…</div>';
-    let users, usage = null;
+    let users;
+    const usageP = API.call('usage').catch(() => null);   // kapasitas Drive dimuat bersamaan, tidak menahan daftar pengguna
     try { users = await API.call('listUsers'); } catch (e) { app.innerHTML = head + emptyState('alert', 'Gagal memuat', esc(e.message)); return; }
-    try { usage = await API.call('usage'); } catch (e) { /* abaikan */ }
+    if (!location.hash.startsWith('#/pengguna')) return;
     S.users = users;
     S.pengguna = users.map(u => ({ username: u.username, nama: u.nama, peran: u.peran, aktif: u.aktif, nip: u.nip, sekolahId: u.sekolahId || '' })); cacheBoot();
-    const pct = usage ? Math.round(usage.used / usage.limit * 1000) / 10 : 0;
     const order = { admin: 0, fasilitator: 1, kepsek: 2, guru: 3, pemantau: 4 };
     const list = users.slice().sort((a, b) => (order[a.peran] - order[b.peran]) || a.nama.localeCompare(b.nama, 'id'));
     app.innerHTML = head + `
@@ -1730,9 +1748,14 @@
           <li><b>Kepala Sekolah</b> — melihat laporan sekolahnya sendiri dan mengesahkannya setelah kedua fasilitator mengesahkan.</li>
           <li><b>Guru</b> — satu akun bersama per sekolah; hanya membuka Pustaka CERMAT (folder bertanda "untuk Guru").</li>
           <li><b>Pemantau</b> — hanya melihat & mengunduh.</li></ul></div>
-        ${usage ? `<div class="card"><div class="card-h">${ic('cloud')}<h3>Penyimpanan Google Drive admin</h3></div><div class="bar big"><i style="width:${Math.min(100, pct)}%"></i></div>
-          <p class="small" style="margin:10px 0 0">${(usage.used / 1073741824).toFixed(2)} GB dari ${(usage.limit / 1073741824).toFixed(0)} GB terpakai (${pct}%) — termasuk Gmail & Google Photos akun admin.</p></div>` : ''}
+        <div id="usagebox"></div>
       </div>`;
+    const usage = await usageP;
+    const box = document.getElementById('usagebox');
+    if (!usage || !box) return;
+    const pct = Math.round(usage.used / usage.limit * 1000) / 10;
+    box.outerHTML = `<div class="card"><div class="card-h">${ic('cloud')}<h3>Penyimpanan Google Drive admin</h3></div><div class="bar big"><i style="width:${Math.min(100, pct)}%"></i></div>
+          <p class="small" style="margin:10px 0 0">${(usage.used / 1073741824).toFixed(2)} GB dari ${(usage.limit / 1073741824).toFixed(0)} GB terpakai (${pct}%) — termasuk Gmail & Google Photos akun admin.</p></div>`;
   }
 
   function openUserModal(uname) {
