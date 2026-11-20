@@ -165,14 +165,14 @@ a.pick.ro { opacity: .92; }
 .phase.f1 b { background: var(--navy); color: #fff; } .phase.f2 b { background: var(--gold); color: #fff; } .phase.f3 b { background: #2a7d74; color: #fff; }
 .phase span { font-weight: 700; color: var(--ink-2); }
 .pcards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
-a.pcard { position: relative; display: flex; gap: 12px; padding: 14px 14px 14px 18px; background: #fff; border: 1px solid var(--line); border-radius: 12px; color: inherit; text-decoration: none !important; box-shadow: var(--sh); overflow: hidden; transition: border-color .15s, box-shadow .15s; }
-a.pcard::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--navy); }
-a.pcard.f2::before { background: var(--gold); } a.pcard.f3::before { background: #2a7d74; }
+.pcard { position: relative; display: flex; gap: 12px; padding: 14px 14px 14px 18px; background: #fff; border: 1px solid var(--line); border-radius: 12px; color: inherit; text-decoration: none !important; box-shadow: var(--sh); overflow: hidden; transition: border-color .15s, box-shadow .15s; }
+.pcard::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--navy); }
+.pcard.f2::before { background: var(--gold); } .pcard.f3::before { background: #2a7d74; }
 a.pcard:hover { border-color: var(--navy-line); box-shadow: var(--sh-lg); }
-a.pcard .no { flex: 0 0 auto; width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-weight: 800; background: #f1f3f8; color: var(--muted); }
-a.pcard.draf .no { background: var(--warn-soft); color: var(--warn); } a.pcard.lengkap .no { background: var(--ok-soft); color: var(--ok); }
-a.pcard .tt { font-weight: 650; font-size: .9rem; line-height: 1.35; color: var(--ink); }
-a.pcard .meta { margin-top: 6px; display: flex; gap: 8px; align-items: center; font-size: .76rem; color: var(--muted); }
+.pcard .no { flex: 0 0 auto; width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-weight: 800; background: #f1f3f8; color: var(--muted); }
+.pcard.draf .no { background: var(--warn-soft); color: var(--warn); } .pcard.lengkap .no { background: var(--ok-soft); color: var(--ok); }
+.pcard .tt { font-weight: 650; font-size: .9rem; line-height: 1.35; color: var(--ink); }
+.pcard .meta { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; font-size: .76rem; color: var(--muted); }
 
 /* ---------- Editor ---------- */
 .ed { display: grid; grid-template-columns: 250px 1fr; gap: 24px; align-items: start; }
@@ -401,7 +401,7 @@ table.rwm tr.sum td.sk { background: #f8f9fc; }
 /* ---------- Pengesahan ---------- */
 .pill.tunggu { background: #e3ecfb; color: #1e4590; }
 .cell.tunggu { background: #dbe6fb; color: #1e4590; }
-a.pcard.tunggu .no { background: #e3ecfb; color: #1e4590; }
+.pcard.tunggu .no { background: #e3ecfb; color: #1e4590; }
 a.pick .pno { flex: 0 0 auto; width: 52px; height: 52px; border-radius: 12px; background: var(--navy-soft); color: var(--navy); font-weight: 800; display: flex; align-items: center; justify-content: center; }
 
 /* ---------- Kepala sekolah: pratinjau laporan ---------- */
@@ -417,8 +417,8 @@ a.pick .pno { flex: 0 0 auto; width: 52px; height: 52px; border-radius: 12px; ba
 .pv-zoom .iconbtn { border-color: var(--line-2); color: var(--navy); }
 .pv-zoom .iconbtn:hover { background: var(--navy-soft); color: var(--navy); }
 .pv-zoom span { min-width: 40px; text-align: center; }
-.pcard.off { cursor: default; opacity: .6; }
-.pcard.off:hover { transform: none; box-shadow: none; }
+.pcard.off { cursor: default; opacity: .62; background: #fafbfd; box-shadow: none; }
+.pcard.off:hover { border-color: var(--line); box-shadow: none; }
 @media (max-width: 980px) {
   .ksv { grid-template-columns: minmax(0, 1fr); }
   .ksv #kssah { position: static; }

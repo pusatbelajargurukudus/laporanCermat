@@ -1,4 +1,4 @@
-/* LAPORAN CERMAT v2.8.1 — antarmuka (multi-pengguna, data di Google Drive lewat Apps Script). */
+/* LAPORAN CERMAT v2.9 — antarmuka (multi-pengguna, data di Google Drive lewat Apps Script). */
 (function () {
   const R = window.Report, I = window.Importer;
   const app = document.getElementById('app');
@@ -184,6 +184,8 @@
       if (old && S.skDirty.has(s.id)) ['nama', 'ksNama', 'ksNip', 'fasil', 'alias'].forEach(k => { s[k] = old[k]; });
       if (syncKs(s) && canEdit(s)) S.pesertaDirty.add(s.id);
     });
+    // fasilitator hanya melihat sekolah binaannya sendiri
+    if (S.user && S.user.peran === 'fasilitator') S.sekolah = S.sekolah.filter(s => inFasil(s, S.user.username));
     S.rekap = new Map((b.rekap || []).map(r => [r.key, r]));
     S.sah = new Map();
     (b.pengesahan || []).forEach(r => { if (!S.sah.has(r.key)) S.sah.set(r.key, []); S.sah.get(r.key).push(r); });
@@ -608,7 +610,14 @@
     if (parts[0] !== 'laporan') { await flushCur(); S.cur = null; }
     switch (parts[0]) {
       case 'sekolah': if (isKepsek()) { location.hash = homeHash(); return; } renderSekolah(); if (await refreshRekap()) { if (location.hash === '#/sekolah' && !document.activeElement.matches('input,textarea,select')) renderSekolah(); } return;
-      case 'buat': return S.user.peran !== 'fasilitator' ? (location.hash = '#/lihat') : parts[1] ? renderPilihP(parts[1]) : renderBuat();
+      case 'buat': {
+        if (S.user.peran !== 'fasilitator') { location.hash = '#/lihat'; return; }
+        if (parts[1]) return renderPilihP(parts[1]);
+        const mine = S.sekolah.filter(s => canFill(s));
+        if (!mine.length) return renderBuat();
+        const sid = mine.some(s => s.id === S.buatSk) ? S.buatSk : mine[0].id;
+        return renderPilihP(sid);   // langsung ke halaman P1–P22 sekolah binaan
+      }
       case 'lihat': if (isKepsek() && !parts[1]) { location.hash = '#/lihat/' + (S.user.sekolahId || ''); return; } return parts[1] ? renderPilihP(parts[1]) : renderLihat();
       case 'pengesahan': return isKepsek() ? renderPengesahan() : (location.hash = homeHash());
       case 'laporan': return openReport(parts[1], parseInt(parts[2], 10), parseInt(parts[3] || '1', 10));
@@ -803,22 +812,24 @@
 
   async function renderPilihP(sid) {
     const s = school(sid);
+    if (s && S.user.peran === 'fasilitator') S.buatSk = sid;
     if (!s) { app.innerHTML = emptyState('alert', 'Sekolah tidak ditemukan', '', `<a class="btn" href="${homeHash()}">Kembali</a>`); return; }
     const draw = () => {
       const fase = [['f1', 'Fase 1', 'Memahami & Menguasai', 1, 7], ['f2', 'Fase 2', 'Merencanakan, Menilai & Mempraktikkan', 8, 16], ['f3', 'Fase 3', 'Mempraktikkan & Menumbuhkan Budaya', 17, 22]];
       const done = doneOf(s.id);
       app.innerHTML = pageHead(esc(s.nama), `${esc(fasilNama(s) || '-')}${s.ksNama ? ' · Kepala sekolah: ' + esc(s.ksNama) : ''}${canFill(s) ? '' : ' · <b>hanya baca</b>'}`,
-        ring(done, 22, 58), isKepsek() ? '' : `<a class="crumb" href="${S.user.peran === 'fasilitator' ? '#/buat' : '#/lihat'}">${ic('arrowL')}Semua sekolah</a>`) +
+        ring(done, 22, 58), isKepsek() || S.user.peran === 'fasilitator' ? '' : `<a class="crumb" href="#/lihat">${ic('arrowL')}Semua sekolah</a>`) +
+        (S.user.peran === 'fasilitator' && S.sekolah.length > 1 ? `<div class="row" style="margin:-6px 0 16px">${S.sekolah.map(x => `<a class="btn sm${x.id === s.id ? ' pri' : ''}" href="#/buat/${x.id}">${esc(x.nama)}</a>`).join('')}</div>` : '') +
         (!s.ksNama && canFill(s) ? `<div class="banner warn small">${ic('alert')}<div>Nama kepala sekolah belum diisi — diperlukan untuk tanda tangan jurnal. <a href="#/sekolah">Lengkapi di Data Sekolah →</a></div></div>` : '') +
         fase.map(([c, t, d, a, b]) => `<div class="phase ${c}"><b>${t}</b><span>${d}</span></div><div class="pcards">${window.SILABUS.filter(p => p.no >= a && p.no <= b).map(p => {
           const st = statusOf(s.id, p.no); const rk = S.rekap.get(R.key(s.id, p.no));
           const tag = isKepsek() && st === 'kosong' ? 'div' : 'a';
           return `<${tag} class="pcard ${c} ${st}${tag === 'div' ? ' off' : ''}"${tag === 'a' ? ` href="#/laporan/${s.id}/${p.no}/${isKepsek() ? NSTEP : 1}"` : ''}><span class="no">${p.no}</span><div><div class="tt">${esc(p.judul)}</div>
-            <div class="meta"><span class="pill ${st}">${stLabel(st)}</span>${rk && rk.tanggal ? esc(R.tanggalPanjang(rk.tanggal).split(', ')[1]) : ''}</div></div></${tag}>`;
+            <div class="meta"><span class="pill ${st}">${tag === 'div' ? 'belum dibuat' : stLabel(st)}</span>${rk && rk.tanggal ? esc(R.tanggalPanjang(rk.tanggal).split(', ')[1]) : ''}</div></div></${tag}>`;
         }).join('')}</div>`).join('');
     };
     draw();
-    if (await refreshRekap()) { if (location.hash === listHash(sid)) draw(); }
+    if (await refreshRekap()) { if (location.hash === listHash(sid) || location.hash === '#/buat') draw(); }
   }
 
   /* ---------- Editor ---------- */
@@ -1537,6 +1548,9 @@
           <div class="legend" style="margin:10px 2px 0"><span><i style="background:#f2f4f8"></i>Belum</span><span><i style="background:#fdebc0"></i>Draf</span><span><i style="background:#dbe6fb"></i>Menunggu pengesahan</span><span><i style="background:#c9ecd8"></i>Lengkap & disahkan — klik untuk unduh</span></div>`
         : emptyState('school', 'Belum ada sekolah', '')}
         <div class="sec"><h2>Unduh sekaligus (ZIP)</h2></div>
+        ${S.user.peran === 'fasilitator' ? (sk.length ? `<div class="card"><div class="card-h">${ic('zip')}<h3>Semua laporan ${esc(sk[0].nama)}</h3></div>
+            <select id="bulkSk" hidden>${sk.map(s => `<option value="${s.id}">${esc(s.nama)}</option>`).join('')}</select>
+            <div id="bulkSkInfo" class="small muted" style="margin:-4px 0 12px"></div><button class="btn pri" data-act="bulk-sk">${ic('download')}Unduh semua laporan lengkap (P1–P22)</button></div>` : '') : `
         <div class="grid2">
           <div class="card"><div class="card-h">${ic('zip')}<h3>Per pendampingan</h3></div><p class="small muted" style="margin-top:-6px">Semua laporan lengkap satu pendampingan dari seluruh sekolah.</p>
             <select id="bulkNo">${window.SILABUS.map(p => `<option value="${p.no}">P${p.no} · ${esc(p.judul)}</option>`).join('')}</select>
@@ -1544,7 +1558,7 @@
           <div class="card"><div class="card-h">${ic('zip')}<h3>Per sekolah</h3></div><p class="small muted" style="margin-top:-6px">Semua laporan lengkap (P1–P22) satu sekolah.</p>
             <select id="bulkSk">${sk.map(s => `<option value="${s.id}">${esc(s.nama)}</option>`).join('')}</select>
             <div id="bulkSkInfo" class="small muted" style="margin:8px 0 12px"></div><button class="btn pri" data-act="bulk-sk">${ic('download')}Unduh ZIP</button></div>
-        </div>
+        </div>`}
         <p class="tiny muted">PDF yang sudah diarsipkan di Google Drive diambil langsung; yang belum, disusun di perangkat ini lalu diarsipkan.</p>`;
       updateBulkInfo();
     };
@@ -1685,10 +1699,10 @@
       let h = pageHead('Total Reward', sub);
       h += `<div class="stats" style="margin-bottom:18px">
           ${list.length > 1 ? `<div class="stat gold"><b>${sums.reduce((a, x) => a + x.m.total, 0)}</b><span>total bintang · ${list.length} sekolah</span></div>`
-            : `<div class="stat gold"><b>${window.SILABUS.filter(p => Object.keys(rewardOf(cur.s.id, p.no)).length).length}</b><span>pendampingan sudah diberi bintang</span></div>`}
+            : `<div class="stat gold"><b>${window.SILABUS.filter(p => Object.values(rewardOf(cur.s.id, p.no)).some(v => Number(v) > 0)).length}</b><span>pendampingan sudah ada bintang</span></div>`}
           <div class="stat"><b>${m.total}</b><span>bintang ${esc(cur.s.nama)}</span></div>
           <div class="stat ok"><b>${penerima}</b><span>peserta sudah mendapat bintang</span></div>
-          <div class="stat"><b>${cur.top ? cur.top.total : 0}</b><span>${cur.top ? 'tertinggi: ' + esc(cur.top.p.nama.split(',')[0]) : 'belum ada bintang'}</span></div></div>`;
+          <div class="stat"><b>${cur.top ? cur.top.total : '–'}</b><span>${cur.top ? 'tertinggi: ' + esc(cur.top.p.nama.split(',')[0]) : 'belum ada bintang'}</span></div></div>`;
       if (list.length > 1) h += `<div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table class="tb"><thead><tr><th>Sekolah</th><th style="width:120px">Total bintang</th><th>Peserta teratas</th><th style="width:40px"></th></tr></thead><tbody>
           ${sums.map(x => `<tr class="clickrow${x.s.id === S.rwSk ? ' on' : ''}" data-act="rw-sk" data-sid="${x.s.id}"><td><b>${esc(x.s.nama)}</b><div class="tiny muted">${esc(fasilNama(x.s) || '-')}</div></td>
             <td><span class="pill gold">${ic('star', 'st')} ${x.m.total}</span></td><td class="small">${x.top ? esc(x.top.p.nama) + ' · <b>' + x.top.total + '</b>' : '<span class="muted">—</span>'}</td><td>${ic('arrowR')}</td></tr>`).join('')}
@@ -1698,7 +1712,7 @@
       if (!m.rows.length) h += emptyState('users', 'Belum ada data peserta', 'Data guru dan kepala sekolah dilengkapi di menu Data Sekolah.');
       else h += `<div class="matrix-wrap"><table class="matrix rwm"><thead><tr class="fase"><th class="sk"></th><th colspan="7" class="f1">FASE 1</th><th colspan="9" class="f2">FASE 2</th><th colspan="6" class="f3">FASE 3</th><th class="tot"></th></tr>
           <tr><th class="sk">Peringkat · Peserta</th>${window.SILABUS.map(p => `<th title="${esc(p.judul)}">P${p.no}</th>`).join('')}<th class="tot">Total</th></tr></thead><tbody>
-          ${m.rows.map((r, i) => `<tr><td class="sk"><div class="row" style="flex-wrap:nowrap;gap:10px"><span class="rk${r.total && ranks[i] <= 3 ? ' r' + ranks[i] : ''}">${ranks[i]}</span><div style="min-width:0"><b>${esc(r.p.nama)}</b><div class="tiny muted">${esc(R.jabatanLabel(r.p) || '-')} · hadir ${r.ikut} kali</div></div></div></td>
+          ${m.rows.map((r, i) => `<tr><td class="sk"><div class="row" style="flex-wrap:nowrap;gap:10px"><span class="rk${r.total && ranks[i] <= 3 ? ' r' + ranks[i] : ''}">${r.total ? ranks[i] : '–'}</span><div style="min-width:0"><b>${esc(r.p.nama)}</b><div class="tiny muted">${esc(R.jabatanLabel(r.p) || '-')} · hadir ${r.ikut} kali</div></div></div></td>
             ${r.cells.map((v, j) => `<td class="${v === undefined ? 'na' : v > 0 ? 'has' : 'zero'}" title="P${j + 1}${v === undefined ? ': tidak hadir / belum diisi' : ': ' + v + ' bintang'}">${v === undefined ? '·' : v}</td>`).join('')}
             <td class="tot"><b>${r.total}</b></td></tr>`).join('')}
           <tr class="sum"><td class="sk"><b>Jumlah per pendampingan</b></td>${m.colSum.map(v => `<td>${v || '·'}</td>`).join('')}<td class="tot"><b>${m.total}</b></td></tr>
