@@ -1,4 +1,4 @@
-/* LAPORAN CERMAT v2.5 — antarmuka (multi-pengguna, data di Google Drive lewat Apps Script). */
+/* LAPORAN CERMAT v2.6 — antarmuka (multi-pengguna, data di Google Drive lewat Apps Script). */
 (function () {
   const R = window.Report, I = window.Importer;
   const app = document.getElementById('app');
@@ -773,8 +773,9 @@
         (!s.ksNama && canFill(s) ? `<div class="banner warn small">${ic('alert')}<div>Nama kepala sekolah belum diisi — diperlukan untuk tanda tangan jurnal. <a href="#/sekolah">Lengkapi di Data Sekolah →</a></div></div>` : '') +
         fase.map(([c, t, d, a, b]) => `<div class="phase ${c}"><b>${t}</b><span>${d}</span></div><div class="pcards">${window.SILABUS.filter(p => p.no >= a && p.no <= b).map(p => {
           const st = statusOf(s.id, p.no); const rk = S.rekap.get(R.key(s.id, p.no));
-          return `<a class="pcard ${c} ${st}" href="#/laporan/${s.id}/${p.no}/1"><span class="no">${p.no}</span><div><div class="tt">${esc(p.judul)}</div>
-            <div class="meta"><span class="pill ${st}">${stLabel(st)}</span>${rk && rk.tanggal ? esc(R.tanggalPanjang(rk.tanggal).split(', ')[1]) : ''}</div></div></a>`;
+          const tag = isKepsek() && st === 'kosong' ? 'div' : 'a';
+          return `<${tag} class="pcard ${c} ${st}${tag === 'div' ? ' off' : ''}"${tag === 'a' ? ` href="#/laporan/${s.id}/${p.no}/${isKepsek() ? NSTEP : 1}"` : ''}><span class="no">${p.no}</span><div><div class="tt">${esc(p.judul)}</div>
+            <div class="meta"><span class="pill ${st}">${stLabel(st)}</span>${rk && rk.tanggal ? esc(R.tanggalPanjang(rk.tanggal).split(', ')[1]) : ''}</div></div></${tag}>`;
         }).join('')}</div>`).join('');
     };
     draw();
@@ -856,6 +857,7 @@
   }
 
   function renderEditor() {
+    if (isKepsek()) return renderKsView();
     const rep = S.cur, s = school(rep.sekolahId), sil = R.sil(rep.no);
     const sst = sahState(s.id, rep.no);
     const locked = canFill(s) && sst.any;
@@ -887,6 +889,92 @@
       </div></div>`;
     rerenderStep(true);
   }
+
+  /* ---------- Tampilan kepala sekolah: pengesahan + pratinjau PDF ---------- */
+  let pdfjsP = null;
+  function loadPdfJs() {
+    if (!pdfjsP) {
+      const base = document.baseURI;
+      pdfjsP = import(new URL('vendor/pdfjs/pdf.min.mjs', base).href).then(m => {
+        m.GlobalWorkerOptions.workerSrc = new URL('vendor/pdfjs/pdf.worker.min.mjs', base).href;
+        return m;
+      }).catch(e => { pdfjsP = null; throw e; });
+    }
+    return pdfjsP;
+  }
+  const PV = { token: 0, zoom: 1, doc: null };
+  function renderKsView() {
+    const rep = S.cur, s = school(rep.sekolahId), sil = R.sil(rep.no);
+    readOnly = true;
+    const st = curStatus();
+    const fase = rep.no <= 7 ? 'f1' : rep.no <= 16 ? 'f2' : 'f3';
+    const final = isFinal(rep, s);
+    app.innerHTML = `
+      <div class="ed-head"><a class="crumb" href="#/lihat/${s.id}">${ic('arrowL')}${esc(s.nama)}</a>
+        <h1>P${rep.no} · ${esc(sil.judul)}</h1>
+        <div class="meta"><span class="phase ${fase}" style="margin:0"><b>${esc(sil.fase)}</b></span><span>${rep.tanggal ? esc(R.tanggalPanjang(rep.tanggal)) : 'tanggal belum diisi'}</span>
+          <span id="statpill" class="pill ${st}">${st === 'kosong' ? 'baru' : stLabel(st)}</span></div></div>
+      <div class="ksv" style="margin-top:18px">
+        <div id="kssah">${sahCard(rep, s)}
+          ${final ? `<div class="card"><button class="btn ok" data-act="download">${ic('download')}Unduh PDF</button><span class="small muted fname">${esc(R.fileName(rep, s))}</span></div>` : ''}</div>
+        <div class="card pv-card"><div class="card-h">${ic('file')}<h2>Pratinjau laporan</h2><span class="spacer"></span>
+          <span class="pv-zoom"><button class="iconbtn" data-pvz="-1" title="Perkecil">${ic('minus')}</button><span id="pvzl">100%</span><button class="iconbtn" data-pvz="1" title="Perbesar">${ic('plus')}</button></span></div>
+          ${!R.isComplete(rep, s) ? `<div class="banner warn small">${ic('alert')}<div>Laporan ini masih <b>draf</b> — fasilitator belum melengkapi semua bagian.</div></div>` : ''}
+          <div class="pv" id="pv"><div class="loading"><span class="spin"></span> Menyusun pratinjau…</div></div></div>
+      </div>`;
+    PV.zoom = 1;
+    showPreview();
+  }
+  async function showPreview() {
+    const rep = S.cur, s = school(rep.sekolahId);
+    const tok = ++PV.token;
+    const box = document.getElementById('pv'); if (!box) return;
+    try {
+      const label = !R.isComplete(rep, s) ? 'DRAF' : !isFinal(rep, s) ? 'BELUM DISAHKAN' : false;
+      const [bytes, lib] = await Promise.all([makePdfBytes(rep, s, label), loadPdfJs()]);
+      if (tok !== PV.token) return;
+      PV.doc = await lib.getDocument({ data: bytes, isEvalSupported: false, standardFontDataUrl: new URL('vendor/pdfjs/standard_fonts/', document.baseURI).href }).promise;
+      await drawPages(tok);
+    } catch (e) {
+      console.error(e);
+      if (tok === PV.token && box.isConnected) box.innerHTML = `<div class="banner bad small">${ic('alert')}<div>Pratinjau gagal dimuat: ${esc(e.message || e)}. Periksa koneksi, lalu muat ulang halaman.</div></div>`;
+    }
+  }
+  async function drawPages(tok) {
+    const box = document.getElementById('pv'); if (!box || !PV.doc) return;
+    const zl = document.getElementById('pvzl'); if (zl) zl.textContent = Math.round(PV.zoom * 100) + '%';
+    box.style.minHeight = box.clientHeight + 'px';
+    box.innerHTML = '';
+    const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+    pvW = box.clientWidth;
+    const avail = Math.max(260, box.clientWidth - 26);
+    for (let i = 1; i <= PV.doc.numPages; i++) {
+      if (tok !== PV.token) return;
+      const page = await PV.doc.getPage(i);
+      const base = page.getViewport({ scale: 1 });
+      const vp = page.getViewport({ scale: avail / base.width * PV.zoom });
+      const c = document.createElement('canvas');
+      c.width = Math.floor(vp.width * dpr); c.height = Math.floor(vp.height * dpr);
+      c.style.width = Math.floor(vp.width) + 'px'; c.style.height = Math.floor(vp.height) + 'px';
+      c.setAttribute('aria-label', 'Halaman ' + i);
+      box.appendChild(c);
+      await page.render({ canvasContext: c.getContext('2d'), viewport: vp, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null }).promise;
+    }
+    box.style.minHeight = '';
+    const n = document.createElement('div'); n.className = 'tiny muted'; n.style.textAlign = 'center';
+    n.textContent = PV.doc.numPages + ' halaman'; box.appendChild(n);
+  }
+  let pvW = 0;
+  window.addEventListener('resize', debounce(() => {
+    const box = document.getElementById('pv'); if (!box || !PV.doc) return;
+    if (Math.abs(box.clientWidth - pvW) > 40) drawPages(++PV.token);
+  }, 300));
+  document.addEventListener('click', e => {
+    const z = e.target.closest('[data-pvz]'); if (!z || !PV.doc) return;
+    const next = Math.max(1, Math.min(3, PV.zoom + (+z.dataset.pvz) * 0.5));
+    if (next === PV.zoom) return;
+    PV.zoom = next; drawPages(++PV.token);
+  });
 
   function conflictBanner(rep) {
     if (!rep._conflict || readOnly) return '';

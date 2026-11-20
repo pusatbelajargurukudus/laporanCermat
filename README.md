@@ -1,10 +1,12 @@
-# LAPORAN CERMAT v2.5
+# LAPORAN CERMAT v2.6
 
 Aplikasi web untuk menyusun **laporan 22 pendampingan Program CERMAT** (Cerdas Numerasi dan Matematika Terapan), dipakai bersama oleh semua fasilitator.
 
 - **Data bersama di Google Drive** akun admin, dengan Google Apps Script sebagai server. Gratis.
 - **Akun masing-masing dengan peran:** Admin, Fasilitator, Kepala Sekolah, dan Pemantau (hanya melihat dan mengunduh).
 - **Pengesahan elektronik (QR).** Fasilitator 1 & 2 mengesahkan dari akun masing-masing, lalu Kepala Sekolah. Kode QR tercetak di *Lembar Pengesahan* (setelah sampul) dan *Jurnal Kegiatan*; pindai untuk membuka halaman verifikasi. Laporan yang sudah disahkan terkunci; membuka kuncinya membatalkan semua pengesahan.
+- **Pratinjau langsung untuk kepala sekolah.** Membuka laporan menampilkan kotak pengesahan dan halaman-halaman PDF di dalam aplikasi (juga di HP dan aplikasi yang diinstal), bisa diperbesar.
+- **Bisa diinstal (PWA).** Android/Chrome: menu ⋮ → *Instal aplikasi*. iPhone/Safari: *Bagikan → Tambahkan ke Layar Utama*. Laptop/Chrome: ikon instal di kolom alamat.
 - **Data sekolah dibagi.** Admin mendaftarkan sekolah dan memasangkan Fasilitator 1 & 2; fasilitator melengkapi nama & NIP kepala sekolah serta data guru.
 - **Reward bintang.** Fasilitator mengisi bintang setiap peserta yang hadir di langkah *Reward*; totalnya terakumulasi dari P1–P22, tercetak di PDF, dan bisa dipantau di menu *Total Reward*.
 - **Jurnal kegiatan ditandatangani** kepala sekolah dan fasilitator yang hadir.
@@ -59,7 +61,7 @@ js/importer.js      baca respons Google Form
 js/report.js        kalimat otomatis, nilai, daftar periksa
 js/pdf.js           penyusun PDF A4
 js/app.js           antarmuka
-vendor/             pdf-lib 1.17.1, JSZip 3.10.1 & qrcode-generator 1.4.4 (MIT)
+vendor/             pdf-lib 1.17.1, JSZip 3.10.1 & qrcode-generator 1.4.4 (MIT); pdfjs/ = PDF.js 4.10.38 (Apache 2.0)
 verifikasi.html     halaman verifikasi kode QR pengesahan
 apps-script/Code.gs server (ditempel di Google Apps Script)
 ```

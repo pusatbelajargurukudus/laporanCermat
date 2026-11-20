@@ -1,4 +1,4 @@
-# Panduan Pemasangan LAPORAN CERMAT v2.5
+# Panduan Pemasangan LAPORAN CERMAT v2.6
 
 Aplikasi terdiri dari dua bagian:
 
@@ -98,6 +98,8 @@ Pemasangan cukup **sekali**, sekitar 15 menit.
 4. Buka aplikasi dan tekan **Ctrl+Shift+R** sekali.
 
 Data lama tetap aman. Kolom baru di Sheets ditambahkan otomatis.
+
+**Catatan v2.6 (Pratinjau kepala sekolah):** `Code.gs` tidak berubah dari v2.5, cukup unggah file ke GitHub. Pastikan folder baru `vendor/pdfjs/` ikut terunggah.
 
 **Catatan v2.5 (Pengesahan QR):** kerjakan langkah 1–2 (server) **sebelum** langkah 3. Sheet `Pengesahan` dan kolom `sekolahId` di sheet `Pengguna` dibuat otomatis. Setelah itu, admin membuat akun **Kepala Sekolah** untuk setiap sekolah di *Kelola Pengguna* (peran *Kepala Sekolah*, pilih sekolahnya, isi nama & NIP). Laporan yang sebelumnya lengkap berstatus *menunggu pengesahan* sampai fasilitator 1 & 2 dan kepala sekolah mengesahkannya; arsip PDF lama di Drive tetap ada.
 

@@ -1,10 +1,10 @@
 /* Service worker: aplikasi tetap bisa dibuka saat sinyal lemah/offline.
  * Naikkan CACHE_VERSION setiap kali ada file yang diubah. */
-const CACHE_VERSION = 'laporan-cermat-v8';
-const FILES = ['./', 'index.html', 'css/app.css?v=8', 'manifest.webmanifest',
+const CACHE_VERSION = 'laporan-cermat-v9';
+const FILES = ['./', 'index.html', 'css/app.css?v=9', 'manifest.webmanifest',
   'icons/logo-mark.png', 'icons/logo-cermat.png', 'icons/favicon-64.png', 'icons/icon-192.png',
   'vendor/pdf-lib.min.js', 'vendor/jszip.min.js', 'vendor/qrcode.js',
-  'js/silabus.js?v=8', 'js/db.js?v=8', 'js/api.js?v=8', 'js/importer.js?v=8', 'js/report.js?v=8', 'js/pdf.js?v=8', 'js/app.js?v=8'];
+  'js/silabus.js?v=9', 'js/db.js?v=9', 'js/api.js?v=9', 'js/importer.js?v=9', 'js/report.js?v=9', 'js/pdf.js?v=9', 'js/app.js?v=9'];
 const FONT_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com'];
 
 self.addEventListener('install', e => {
@@ -26,6 +26,11 @@ self.addEventListener('fetch', e => {
     return;
   }
   if (url.origin !== location.origin) return;
+  // Pustaka pratinjau PDF (PDF.js): diunduh saat pertama dipakai, lalu disimpan untuk offline
+  if (url.pathname.indexOf('/vendor/pdfjs/') >= 0) {
+    e.respondWith(caches.match(e.request).then(r => r || fetch(e.request).then(res => { if (res.ok) { const cp = res.clone(); caches.open(CACHE_VERSION).then(c => c.put(e.request, cp)); } return res; })));
+    return;
+  }
   // Halaman & config.js selalu dicoba dari jaringan dulu supaya perubahan (mis. URL server) langsung terpakai
   if (e.request.mode === 'navigate' || url.pathname.endsWith('/js/config.js')) { e.respondWith(networkFirst(e.request)); return; }
   e.respondWith(caches.match(e.request).then(r => r || fetch(e.request)));
