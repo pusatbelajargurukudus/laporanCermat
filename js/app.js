@@ -1,4 +1,4 @@
-/* LAPORAN CERMAT v2.4 — antarmuka (multi-pengguna, data di Google Drive lewat Apps Script). */
+/* LAPORAN CERMAT v2.5 — antarmuka (multi-pengguna, data di Google Drive lewat Apps Script). */
 (function () {
   const R = window.Report, I = window.Importer;
   const app = document.getElementById('app');
@@ -6,11 +6,11 @@
   const JABATAN = ['', 'Kepala Sekolah', 'Guru Kelas', 'Guru Mapel', 'Tenaga Kependidikan'];
   const JABATAN_GURU = ['Guru Kelas', 'Guru Mapel', 'Tenaga Kependidikan', 'Kepala Sekolah'];
   const KELAS = ['', '1', '2', '3', '4', '5', '6'];
-  const PERAN = { admin: 'Admin', fasilitator: 'Fasilitator', pemantau: 'Pemantau' };
+  const PERAN = { admin: 'Admin', fasilitator: 'Fasilitator', pemantau: 'Pemantau', kepsek: 'Kepala Sekolah' };
   const eqU = (a, b) => String(a || '').toLowerCase() === String(b || '').toLowerCase();
 
   const S = {
-    user: null, program: {}, sekolah: [], pengguna: [], rekap: new Map(),
+    user: null, program: {}, sekolah: [], pengguna: [], rekap: new Map(), sah: new Map(),
     local: new Map(),            // key -> { status, dirty } dari salinan lokal
     pesertaDirty: new Set(), skDirty: new Set(), delQueue: [],
     cur: null, step: 1, imp: null, impMode: 'pre', showAll: false, cal: null, open: new Set(), adding: false,
@@ -75,9 +75,10 @@
   const fasilNama = s => fasilOf(s).map(namaUser).join(' & ');
   const inFasil = (s, u) => fasilOf(s).some(x => eqU(x, u));
   const isAdmin = () => S.user && S.user.peran === 'admin';
+  const isKepsek = () => S.user && S.user.peran === 'kepsek';
   const canEdit = s => !!(S.user && s && (S.user.peran === 'admin' || (S.user.peran === 'fasilitator' && inFasil(s, S.user.username))));   // data sekolah
   const canFill = s => !!(S.user && s && S.user.peran === 'fasilitator' && inFasil(s, S.user.username));   // isi laporan
-  const homeHash = () => S.user && S.user.peran === 'fasilitator' ? '#/buat' : '#/lihat';
+  const homeHash = () => S.user && S.user.peran === 'fasilitator' ? '#/buat' : isKepsek() ? '#/pengesahan' : '#/lihat';
   const listHash = sid => (S.user && S.user.peran === 'fasilitator' ? '#/buat/' : '#/lihat/') + sid;
   const fasilUsers = () => S.pengguna.filter(u => u.aktif && u.peran === 'fasilitator');
   const clone = o => JSON.parse(JSON.stringify(o));
@@ -140,7 +141,7 @@
     if (!S.user) return;
     const peserta = [];
     S.sekolah.forEach(s => (s.peserta || []).forEach(p => peserta.push(Object.assign({ sekolahId: s.id }, p))));
-    kvSet('boot', { user: S.user, program: S.program, sekolah: S.sekolah.map(s => { const o = Object.assign({}, s); delete o.peserta; return o; }), peserta, pengguna: S.pengguna, rekap: [...S.rekap.values()] });
+    kvSet('boot', { user: S.user, program: S.program, sekolah: S.sekolah.map(s => { const o = Object.assign({}, s); delete o.peserta; return o; }), peserta, pengguna: S.pengguna, rekap: [...S.rekap.values()], pengesahan: [].concat(...S.sah.values()) });
   }, 500);
 
   /* Kepala sekolah otomatis tercatat sebagai peserta (untuk daftar hadir). */
@@ -170,6 +171,8 @@
       if (syncKs(s) && canEdit(s)) S.pesertaDirty.add(s.id);
     });
     S.rekap = new Map((b.rekap || []).map(r => [r.key, r]));
+    S.sah = new Map();
+    (b.pengesahan || []).forEach(r => { if (!S.sah.has(r.key)) S.sah.set(r.key, []); S.sah.get(r.key).push(r); });
   }
 
   async function loadLocalStatus() {
@@ -179,13 +182,34 @@
       if (s && r._dirty) S.local.set(r.key, { status: R.status(normalize(r), s), dirty: true, reward: R.rewardHadir(r) });
     }
   }
-  function statusOf(sid, no) {
+  /* Status isi laporan (semua bagian wajib terisi atau belum). */
+  function contentOf(sid, no) {
     const key = R.key(sid, no);
     const l = S.local.get(key);
     if (l && l.dirty) return l.status;
     const r = S.rekap.get(key);
     return r ? (r.status === 'lengkap' ? 'lengkap' : 'draf') : 'kosong';
   }
+  /* Pengesahan: Fasilitator 1 & 2 (masing-masing) lalu Kepala Sekolah. */
+  function sahState(sid, no) {
+    const s = school(sid), key = R.key(sid, no);
+    const list = S.sah.get(key) || [];
+    const fasil = fasilOf(s).map((u, i) => ({ u, i, rec: list.find(r => r.peran === 'fasil' && eqU(r.username, u)) || null }));
+    const ks = list.find(r => r.peran === 'ks') || null;
+    const allFasil = fasil.length > 0 && fasil.every(f => f.rec);
+    return { list, fasil, ks, allFasil, done: allFasil && !!ks, any: list.length > 0 };
+  }
+  /* Status akhir: kosong | draf | tunggu (isi lengkap, menunggu pengesahan) | lengkap (isi lengkap & sudah disahkan). */
+  function statusOf(sid, no) {
+    const c = contentOf(sid, no);
+    if (c !== 'lengkap') return c;
+    const l = S.local.get(R.key(sid, no));
+    if (l && l.dirty) return 'tunggu';
+    return sahState(sid, no).done ? 'lengkap' : 'tunggu';
+  }
+  const stLabel = st => ({ kosong: 'belum', draf: 'draf', tunggu: 'menunggu pengesahan', lengkap: 'lengkap' }[st] || st);
+  const kepsekOf = s => S.pengguna.filter(u => u.peran === 'kepsek' && u.aktif && s && u.sekolahId === s.id);
+  const lastSahAt = key => (S.sah.get(key) || []).reduce((a, r) => Math.max(a, r.waktu || 0), 0);
   const doneOf = sid => window.SILABUS.filter(p => statusOf(sid, p.no) === 'lengkap').length;
   /* Bintang per peserta (hanya yang hadir) pada satu laporan: salinan lokal yang belum terkirim didahulukan. */
   function rewardOf(sid, no) {
@@ -199,7 +223,7 @@
   /* Total bintang per peserta dari P1 sampai P(upto). */
   function rewardTotals(sid, upto) {
     const tot = {};
-    for (let no = 1; no <= (upto || 22); no++) {
+    for (let no = 1; no <= (upto === undefined ? 22 : upto); no++) {
       const r = rewardOf(sid, no);
       Object.keys(r).forEach(id => { tot[id] = (tot[id] || 0) + (Number(r[id]) || 0); });
     }
@@ -248,8 +272,17 @@
     try { const r = await getImageRec(S.program.kopId); S.kopData = r ? r.data : null; } catch (e) { /* tanpa kop */ }
   }
   function pdfSettings(s, rep) {
-    const fasil = R.fasilHadir(rep, s).map(u => { const x = userBy(u); return { nama: x ? x.nama : u, nip: x ? x.nip : '' }; });
-    return Object.assign({}, S.program, { fasilitator: fasil, kepala: { nama: s.ksNama, nip: s.ksNip }, kop: S.kopData, rewardSebelum: rewardTotals(s.id, rep.no - 1) });
+    const fasil = R.fasilHadir(rep, s).map(u => { const x = userBy(u); return { username: u, nama: x ? x.nama : u, nip: x ? x.nip : '' }; });
+    const st = sahState(s.id, rep.no);
+    const fs = st.fasil.length > 1;
+    const ksAcc = kepsekOf(s)[0];
+    const sah = {
+      verifyBase: new URL('verifikasi.html', location.href.split('#')[0]).href,
+      fasil: st.fasil.map(f => { const x = userBy(f.u); return { title: fs ? 'Fasilitator ' + (f.i + 1) : 'Fasilitator', username: f.u,
+        nama: f.rec ? f.rec.nama : (x ? x.nama : f.u), nip: f.rec ? f.rec.nip : (x ? x.nip : ''), rec: f.rec }; }),
+      ks: { title: 'Kepala ' + s.nama, nama: st.ks ? st.ks.nama : (ksAcc ? ksAcc.nama : s.ksNama), nip: st.ks ? st.ks.nip : (ksAcc ? ksAcc.nip : s.ksNip), rec: st.ks }
+    };
+    return Object.assign({}, S.program, { fasilitator: fasil, kepala: { nama: s.ksNama, nip: s.ksNip }, kop: S.kopData, rewardSebelum: rewardTotals(s.id, rep.no - 1), sah });
   }
 
   /* =========================================================
@@ -491,6 +524,7 @@
     const rw = ['reward', 'Total Reward', 'star'];
     if (u.peran === 'admin') return [['pengguna', 'Kelola Pengguna', 'users'], ['sekolah', 'Data Sekolah', 'school'], ['lihat', 'Lihat Laporan', 'eye'], ['unduh', 'Unduh Laporan', 'download'], rw];
     if (u.peran === 'fasilitator') return [['sekolah', 'Data Sekolah', 'school'], ['buat', 'Buat Laporan', 'edit'], ['unduh', 'Unduh Laporan', 'download'], rw];
+    if (u.peran === 'kepsek') return [['pengesahan', 'Pengesahan', 'check'], ['lihat', 'Laporan Sekolah', 'file', 'Laporan'], ['unduh', 'Unduh Laporan', 'download'], rw];
     return [['sekolah', 'Data Sekolah', 'school'], ['lihat', 'Lihat Laporan', 'eye'], ['unduh', 'Unduh Laporan', 'download'], rw];
   }
   function setNav() {
@@ -499,7 +533,7 @@
     if (!u) { nav.innerHTML = ''; usr.innerHTML = ''; tab.innerHTML = ''; return; }
     const items = navItems();
     nav.innerHTML = items.map(([k, l, i]) => `<a href="#/${k}" data-nav="${k}">${ic(i)}<span>${l}</span></a>`).join('');
-    tab.innerHTML = items.map(([k, l, i]) => `<a href="#/${k}" data-nav="${k}">${ic(i, 'lg')}<span>${l.replace(' Laporan', '').replace('Kelola ', '').replace('Total ', '')}</span></a>`).join('');
+    tab.innerHTML = items.map(([k, l, i, sh]) => `<a href="#/${k}" data-nav="${k}">${ic(i, 'lg')}<span>${sh || l.replace(' Laporan', '').replace('Kelola ', '').replace('Total ', '')}</span></a>`).join('');
     usr.innerHTML = `<button class="avatar" id="avbtn" data-menu="1" aria-haspopup="true">
         <span class="nm"><b>${esc(u.nama.split(',')[0])}</b><span>${PERAN[u.peran]}</span></span>
         <span class="bubble">${esc(initials(u.nama))}<span class="sd ok"></span></span></button>
@@ -534,9 +568,10 @@
     window.scrollTo(0, 0);
     if (parts[0] !== 'laporan') { await flushCur(); S.cur = null; }
     switch (parts[0]) {
-      case 'sekolah': renderSekolah(); if (await refreshRekap()) { if (location.hash === '#/sekolah' && !document.activeElement.matches('input,textarea,select')) renderSekolah(); } return;
+      case 'sekolah': if (isKepsek()) { location.hash = homeHash(); return; } renderSekolah(); if (await refreshRekap()) { if (location.hash === '#/sekolah' && !document.activeElement.matches('input,textarea,select')) renderSekolah(); } return;
       case 'buat': return S.user.peran !== 'fasilitator' ? (location.hash = '#/lihat') : parts[1] ? renderPilihP(parts[1]) : renderBuat();
-      case 'lihat': return parts[1] ? renderPilihP(parts[1]) : renderLihat();
+      case 'lihat': if (isKepsek() && !parts[1]) { location.hash = '#/lihat/' + (S.user.sekolahId || ''); return; } return parts[1] ? renderPilihP(parts[1]) : renderLihat();
+      case 'pengesahan': return isKepsek() ? renderPengesahan() : (location.hash = homeHash());
       case 'laporan': return openReport(parts[1], parseInt(parts[2], 10), parseInt(parts[3] || '1', 10));
       case 'unduh': return renderUnduh();
       case 'reward': return renderReward();
@@ -711,10 +746,10 @@
       const other = S.sekolah.filter(s => !canFill(s));
       const card = s => {
         const st = window.SILABUS.map(p => statusOf(s.id, p.no));
-        const l = st.filter(x => x === 'lengkap').length, d = st.filter(x => x === 'draf').length;
+        const l = st.filter(x => x === 'lengkap').length, d = st.filter(x => x === 'draf').length, tg = st.filter(x => x === 'tunggu').length;
         return `<a class="pick${canFill(s) ? '' : ' ro'}" href="#/buat/${s.id}">${ring(l, 22, 58)}
           <div style="min-width:0;flex:1"><h3>${esc(s.nama)}</h3><div class="meta">${esc(fasilNama(s) || 'Fasilitator belum ditentukan')}</div>
-          <div class="meta" style="margin-top:6px">${d ? `<span class="pill draf">${d} draf</span> ` : ''}${canFill(s) ? '' : '<span class="pill kosong">hanya baca</span>'}</div></div>${ic('arrowR')}</a>`;
+          <div class="meta" style="margin-top:6px">${tg ? `<span class="pill tunggu">${tg} menunggu pengesahan</span> ` : ''}${d ? `<span class="pill draf">${d} draf</span> ` : ''}${canFill(s) ? '' : '<span class="pill kosong">hanya baca</span>'}</div></div>${ic('arrowR')}</a>`;
       };
       let h = pageHead('Buat Laporan', 'Pilih sekolah, lalu pendampingan yang akan dilaporkan.');
       if (!S.sekolah.length) h += emptyState('school', 'Belum ada sekolah binaan', 'Admin belum mendaftarkan sekolah binaan.');
@@ -734,12 +769,12 @@
       const fase = [['f1', 'Fase 1', 'Memahami & Menguasai', 1, 7], ['f2', 'Fase 2', 'Merencanakan, Menilai & Mempraktikkan', 8, 16], ['f3', 'Fase 3', 'Mempraktikkan & Menumbuhkan Budaya', 17, 22]];
       const done = doneOf(s.id);
       app.innerHTML = pageHead(esc(s.nama), `${esc(fasilNama(s) || '-')}${s.ksNama ? ' · Kepala sekolah: ' + esc(s.ksNama) : ''}${canFill(s) ? '' : ' · <b>hanya baca</b>'}`,
-        ring(done, 22, 58), `<a class="crumb" href="${S.user.peran === 'fasilitator' ? '#/buat' : '#/lihat'}">${ic('arrowL')}Semua sekolah</a>`) +
+        ring(done, 22, 58), isKepsek() ? '' : `<a class="crumb" href="${S.user.peran === 'fasilitator' ? '#/buat' : '#/lihat'}">${ic('arrowL')}Semua sekolah</a>`) +
         (!s.ksNama && canFill(s) ? `<div class="banner warn small">${ic('alert')}<div>Nama kepala sekolah belum diisi — diperlukan untuk tanda tangan jurnal. <a href="#/sekolah">Lengkapi di Data Sekolah →</a></div></div>` : '') +
         fase.map(([c, t, d, a, b]) => `<div class="phase ${c}"><b>${t}</b><span>${d}</span></div><div class="pcards">${window.SILABUS.filter(p => p.no >= a && p.no <= b).map(p => {
           const st = statusOf(s.id, p.no); const rk = S.rekap.get(R.key(s.id, p.no));
           return `<a class="pcard ${c} ${st}" href="#/laporan/${s.id}/${p.no}/1"><span class="no">${p.no}</span><div><div class="tt">${esc(p.judul)}</div>
-            <div class="meta"><span class="pill ${st}">${st === 'kosong' ? 'belum' : st}</span>${rk && rk.tanggal ? esc(R.tanggalPanjang(rk.tanggal).split(', ')[1]) : ''}</div></div></a>`;
+            <div class="meta"><span class="pill ${st}">${stLabel(st)}</span>${rk && rk.tanggal ? esc(R.tanggalPanjang(rk.tanggal).split(', ')[1]) : ''}</div></div></a>`;
         }).join('')}</div>`).join('');
     };
     draw();
@@ -776,6 +811,8 @@
       } else S.cur = normalize(Object.assign(R.blank(sid, no), { _version: 0 }));
     }
     renderEditor();
+    const k0 = key, before = JSON.stringify(S.sah.get(key) || []);
+    if (await refreshRekap(true)) { if (S.cur && S.cur.key === k0 && location.hash.startsWith('#/laporan/') && JSON.stringify(S.sah.get(k0) || []) !== before && !document.activeElement.matches('input,textarea,select')) renderEditor(); }
   }
 
   async function refreshFromServer(key) {
@@ -793,27 +830,36 @@
   function stepDots(rep, s) {
     const ck = R.checklist(rep, s);
     return [1, 2, 3, 4, 5, 6, 7].map(i => {
-      if (i === NSTEP) return R.isComplete(rep, s) ? 'ok' : 'no';
+      if (i === NSTEP) return R.isComplete(rep, s) && sahState(s.id, rep.no).done && !rep._dirty ? 'ok' : 'no';
       const items = ck.filter(c => c.step === i && c.wajib);
       if (!items.length) return '';
       return items.every(c => c.ok) ? 'ok' : 'no';
     });
   }
-  function curStatus() { const r = S.cur; if (!r) return 'kosong'; if (!r._dirty && !(r._version > 0)) return 'kosong'; return R.status(r, school(r.sekolahId)); }
+  function curStatus() {
+    const r = S.cur; if (!r) return 'kosong'; if (!r._dirty && !(r._version > 0)) return 'kosong';
+    const c = R.status(r, school(r.sekolahId));
+    if (c !== 'lengkap') return c;
+    return !r._dirty && sahState(r.sekolahId, r.no).done ? 'lengkap' : 'tunggu';
+  }
+  /* Unduh PDF final: isi lengkap, tersinkron, dan sudah disahkan ketiganya. */
+  const isFinal = (rep, s) => R.isComplete(rep, s) && !rep._dirty && sahState(s.id, rep.no).done;
   function refreshStepDots() {
     if (!S.cur) return;
     const s = school(S.cur.sekolahId);
     const d = stepDots(S.cur, s);
     document.querySelectorAll('.stepper a .n').forEach((n, i) => { n.className = 'n ' + d[i]; n.innerHTML = d[i] === 'ok' ? ic('check') : String(i + 1); });
     const pill = document.getElementById('statpill');
-    if (pill) { const st = curStatus(); pill.className = 'pill ' + st; pill.textContent = st === 'kosong' ? 'baru' : st; }
+    if (pill) { const st = curStatus(); pill.className = 'pill ' + st; pill.textContent = st === 'kosong' ? 'baru' : stLabel(st); }
     const sf = document.getElementById('sfoot');
     if (sf) { const ck = R.checklist(S.cur, s).filter(c => c.wajib); sf.textContent = ck.filter(c => c.ok).length + ' dari ' + ck.length + ' bagian wajib lengkap'; }
   }
 
   function renderEditor() {
     const rep = S.cur, s = school(rep.sekolahId), sil = R.sil(rep.no);
-    readOnly = !canFill(s);
+    const sst = sahState(s.id, rep.no);
+    const locked = canFill(s) && sst.any;
+    readOnly = !canFill(s) || locked;
     const names = STEPS(rep.no);
     const dots = stepDots(rep, s);
     const st = curStatus();
@@ -823,9 +869,12 @@
       <div class="ed-head"><a class="crumb" href="${listHash(s.id)}">${ic('arrowL')}${esc(s.nama)}</a>
         <h1>P${rep.no} · ${esc(sil.judul)}</h1>
         <div class="meta"><span class="phase ${fase}" style="margin:0"><b>${esc(sil.fase)}</b></span><span>${esc(sil.tahap)}</span>
-          <span id="statpill" class="pill ${st}">${st === 'kosong' ? 'baru' : st}</span>
+          <span id="statpill" class="pill ${st}">${st === 'kosong' ? 'baru' : stLabel(st)}</span>
           ${rk && rk.updatedBy ? `<span>Terakhir diubah ${esc(rk.updatedBy.split(',')[0])}, ${fmtWaktu(rk.updatedAt)}</span>` : ''}</div></div>
-      ${readOnly ? `<div class="banner info small" style="margin-top:14px">${ic('eye')}<div>Mode baca — laporan ini diisi oleh <b>${esc(fasilNama(s) || 'fasilitator pemegang')}</b>; Anda bisa melihat isinya dan pratinjau PDF.</div></div>` : ''}
+      ${locked ? `<div class="banner ok small" style="margin-top:14px">${ic('lock')}<div><b>Laporan ini sudah disahkan${sst.done ? ' lengkap' : ' sebagian'}</b> (${esc(sst.list.map(r => r.nama.split(',')[0]).join(', '))}), sehingga isinya terkunci.
+          Untuk mengubah isi, buka kunci terlebih dahulu — <b>semua pengesahan laporan ini dibatalkan</b> dan perlu disahkan ulang.
+          <div class="row" style="margin-top:8px"><button class="btn sm" data-act="unlock">${ic('edit')}Buka kunci untuk mengubah</button></div></div></div>`
+        : readOnly ? `<div class="banner info small" style="margin-top:14px">${ic('eye')}<div>${isKepsek() ? 'Mode baca — periksa isi laporan dan pratinjau PDF-nya, lalu sahkan di langkah <b>Periksa &amp; Unduh</b>.' : `Mode baca — laporan ini diisi oleh <b>${esc(fasilNama(s) || 'fasilitator pemegang')}</b>; Anda bisa melihat isinya dan pratinjau PDF.`}</div></div>` : ''}
       <div class="ed" style="margin-top:18px">
         <nav class="stepper">${names.map((n, i) => `<a href="#/laporan/${s.id}/${rep.no}/${i + 1}" class="${S.step === i + 1 ? 'on' : ''}"><span class="n ${dots[i]}">${dots[i] === 'ok' ? ic('check') : i + 1}</span><span class="lbl">${n}</span></a>`).join('')}
           <div class="sfoot" id="sfoot"></div></nav>
@@ -834,7 +883,7 @@
       <div class="navbtm"><div class="in">
         ${S.step > 1 ? `<a class="btn" href="#/laporan/${s.id}/${rep.no}/${S.step - 1}">${ic('arrowL')}Sebelumnya</a>` : `<a class="btn ghost" href="${listHash(s.id)}">${ic('arrowL')}Daftar laporan</a>`}
         <span class="spacer"></span>
-        ${S.step < NSTEP ? `<a class="btn pri" href="#/laporan/${s.id}/${rep.no}/${S.step + 1}">Berikutnya${ic('arrowR')}</a>` : `<button class="btn ok" data-act="download"${R.isComplete(rep, s) ? '' : ' disabled'}>${ic('download')}Unduh PDF</button>`}
+        ${S.step < NSTEP ? `<a class="btn pri" href="#/laporan/${s.id}/${rep.no}/${S.step + 1}">Berikutnya${ic('arrowR')}</a>` : `<button class="btn ok" data-act="download"${isFinal(rep, s) ? '' : ' disabled'}>${ic('download')}Unduh PDF</button>`}
       </div></div>`;
     rerenderStep(true);
   }
@@ -852,7 +901,7 @@
     body.innerHTML = conflictBanner(rep) + [null, step1, step2, step3, step4, stepReward, step5, step6][S.step](rep, s, R.sil(rep.no));
     if (readOnly) {
       body.querySelectorAll('input, select, textarea').forEach(e => { if (e.dataset.act !== 'showall') e.disabled = true; });
-      const keep = ['preview', 'download'].concat(isAdmin() ? ['del-report'] : []);
+      const keep = ['preview', 'download', 'sahkan', 'unlock'].concat(isAdmin() ? ['del-report'] : []);
       body.querySelectorAll('[data-act]').forEach(b => { if (!keep.includes(b.dataset.act) && b.tagName !== 'INPUT') b.style.display = 'none'; });
       body.querySelectorAll('label.upl, .chips, .ro-hide').forEach(e => { e.style.display = 'none'; });
     }
@@ -1186,16 +1235,41 @@
   }
 
   /* ---- Langkah 7 ---- */
+  function sahCard(rep, s) {
+    const st = sahState(s.id, rep.no);
+    const isi = R.isComplete(rep, s);
+    const rk = S.rekap.get(rep.key);
+    const synced = !rep._dirty && !hasTmp(rep) && !rep._conflict && rep._version > 0 && rk && rk.version === rep._version && rk.status === 'lengkap';
+    const me = S.user;
+    const myFasil = st.fasil.find(f => eqU(f.u, me.username));
+    const ksAcc = kepsekOf(s);
+    const row = (label, nama, rec, wait) => `<li><span class="ici ${rec ? 'ok' : 'no'}">${rec ? '✓' : '!'}</span>
+      <span><b>${esc(label)}</b> · ${esc(rec ? rec.nama : nama)}${rec ? `<div class="tiny muted">Disahkan ${fmtWaktu(rec.waktu)}</div>` : wait ? `<div class="tiny muted">${wait}</div>` : ''}</span></li>`;
+    let act = '';
+    if (myFasil && !myFasil.rec) {
+      const why = !isi ? 'Lengkapi dulu semua bagian wajib di daftar periksa.' : !synced ? 'Tunggu sampai semua perubahan tersimpan ke Google Drive (indikator sinkron hijau).' : '';
+      act = `<div class="row" style="margin-top:12px"><button class="btn pri" data-act="sahkan"${why ? ' disabled' : ''}>${ic('check')}Sahkan sebagai Fasilitator</button></div>${why ? `<p class="tiny muted" style="margin:6px 0 0">${why}</p>` : ''}`;
+    } else if (isKepsek() && !st.ks) {
+      const why = !isi || !synced ? 'Laporan belum lengkap atau masih diperbarui fasilitator.' : !st.allFasil ? 'Menunggu pengesahan kedua fasilitator.' : '';
+      act = `<div class="row" style="margin-top:12px"><button class="btn pri" data-act="sahkan"${why ? ' disabled' : ''}>${ic('check')}Sahkan sebagai Kepala Sekolah</button></div>${why ? `<p class="tiny muted" style="margin:6px 0 0">${why}</p>` : '<p class="tiny muted" style="margin:6px 0 0">Periksa dulu isi laporan dan pratinjau PDF-nya. Pengesahan tidak bisa ditarik oleh kepala sekolah.</p>'}`;
+    }
+    return `<div class="card"><div class="card-h">${ic('lock')}<h2>Pengesahan</h2><span class="spacer"></span><span class="pill ${st.done ? 'lengkap' : 'tunggu'}">${st.done ? 'disahkan' : (st.list.length + ' dari ' + (st.fasil.length + 1))}</span></div>
+      <p class="small muted" style="margin-top:-6px">Wajib. Fasilitator 1 &amp; 2 mengesahkan dari akun masing-masing, lalu kepala sekolah. Kode QR pengesahan tercetak di Lembar Pengesahan dan Jurnal Kegiatan.</p>
+      <ul class="ck">${st.fasil.map(f => row(st.fasil.length > 1 ? 'Fasilitator ' + (f.i + 1) : 'Fasilitator', namaUser(f.u), f.rec, eqU(f.u, me.username) ? '' : 'belum mengesahkan')).join('') || row('Fasilitator', 'belum ditentukan admin', null, '')}
+        ${row('Kepala Sekolah', ksAcc.length ? ksAcc[0].nama : (s.ksNama || '-'), st.ks, ksAcc.length ? (st.allFasil ? 'menunggu pengesahan kepala sekolah' : 'disahkan setelah kedua fasilitator') : 'akun kepala sekolah belum dibuat admin')}</ul>${act}</div>`;
+  }
   function step6(rep, s) {
     const ck = R.checklist(rep, s);
-    const done = R.isComplete(rep, s);
+    const done = isFinal(rep, s);
     const link = c => c.step === 0 ? '#/sekolah' : `#/laporan/${s.id}/${rep.no}/${c.step}`;
     return `<div class="card"><div class="card-h">${ic('check')}<h2>Daftar periksa</h2></div><ul class="ck">${ck.map(c => `<li><span class="ici ${c.ok ? 'ok' : c.wajib ? 'no' : 'opt'}">${c.ok ? '✓' : c.wajib ? '!' : '–'}</span>
       <span>${esc(c.label)}</span><span class="spacer"></span>${c.ok ? '' : `<a class="small" href="${link(c)}">${readOnly ? 'Lihat' : 'Lengkapi'} →</a>`}</li>`).join('')}</ul></div>
       <div class="card"><div class="card-h">${ic('file')}<h2>PDF laporan</h2></div>
-      ${done ? `<div class="banner ok small">${ic('check')}<div>Semua bagian wajib lengkap. File: <b>${esc(R.fileName(rep, s))}</b><br>Saat diunduh, salinan PDF juga diarsipkan otomatis ke folder sekolah di Google Drive.</div></div>`
-        : `<div class="banner warn small">${ic('alert')}<div>Masih ada bagian wajib yang belum lengkap. Pratinjau tetap bisa dilihat dengan tanda <b>DRAF</b>; tombol unduh aktif setelah semua lengkap.</div></div>`}
+      ${done ? `<div class="banner ok small">${ic('check')}<div>Laporan lengkap dan sudah disahkan. File: <b>${esc(R.fileName(rep, s))}</b><br>Saat diunduh, salinan PDF juga diarsipkan otomatis ke folder sekolah di Google Drive.</div></div>`
+        : R.isComplete(rep, s) ? `<div class="banner warn small">${ic('alert')}<div>Isi laporan sudah lengkap, tetapi <b>belum disahkan</b> lengkap. Pratinjau bisa dilihat dengan tanda <b>BELUM DISAHKAN</b>; tombol unduh aktif setelah fasilitator dan kepala sekolah mengesahkan.</div></div>`
+        : `<div class="banner warn small">${ic('alert')}<div>Masih ada bagian wajib yang belum lengkap. Pratinjau tetap bisa dilihat dengan tanda <b>DRAF</b>; tombol unduh aktif setelah semua lengkap dan disahkan.</div></div>`}
       <div class="row"><button class="btn" data-act="preview">${ic('eye')}Pratinjau</button><button class="btn ok" data-act="download"${done ? '' : ' disabled'}>${ic('download')}Unduh PDF</button></div></div>
+      ${sahCard(rep, s)}
       ${(!readOnly || isAdmin()) && (rep._version > 0 || rep._dirty) ? `<div class="card"><div class="card-h">${ic('trash')}<h3>Hapus laporan${isAdmin() ? ' (darurat, admin)' : ''}</h3></div><p class="small muted" style="margin-top:-6px">Folder laporan ini (isian, foto, PDF) dipindah ke Sampah Google Drive dan masih bisa dipulihkan admin selama 30 hari.</p><button class="btn danger" data-act="del-report">${ic('trash')}Hapus laporan ini</button></div>` : ''}`;
   }
 
@@ -1214,7 +1288,7 @@
   async function previewPdf() {
     const rep = S.cur, s = school(rep.sekolahId);
     toast('Menyusun pratinjau…', false, 1500);
-    const bytes = await makePdfBytes(rep, s, !R.isComplete(rep, s));
+    const bytes = await makePdfBytes(rep, s, !R.isComplete(rep, s) ? 'DRAF' : !isFinal(rep, s) ? 'BELUM DISAHKAN' : false);
     const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
     const bg = document.createElement('div');
     bg.className = 'modal-bg';
@@ -1226,6 +1300,7 @@
   async function downloadCur() {
     const rep = S.cur, s = school(rep.sekolahId);
     if (!R.isComplete(rep, s)) return toast('Lengkapi dulu bagian wajib di daftar periksa.', true);
+    if (!isFinal(rep, s)) return toast('Laporan belum disahkan fasilitator dan kepala sekolah.', true);
     toast('Menyusun PDF…', false, 1500);
     const bytes = await makePdfBytes(rep, s, false);
     const name = R.fileName(rep, s);
@@ -1283,13 +1358,13 @@
     const draw = () => {
       const sk = S.sekolah;
       const tot = sk.length * 22;
-      let lengkap = 0, draf = 0;
-      sk.forEach(s => window.SILABUS.forEach(p => { const st = statusOf(s.id, p.no); if (st === 'lengkap') lengkap++; else if (st === 'draf') draf++; }));
+      let lengkap = 0, draf = 0, tunggu = 0;
+      sk.forEach(s => window.SILABUS.forEach(p => { const st = statusOf(s.id, p.no); if (st === 'lengkap') lengkap++; else if (st === 'draf') draf++; else if (st === 'tunggu') tunggu++; }));
       const last = sid => { let b = null; S.rekap.forEach(r => { if (r.sekolahId === sid && (!b || r.updatedAt > b.updatedAt)) b = r; }); return b; };
       const rows = sk.map(s => {
-        const l = doneOf(s.id), d = window.SILABUS.filter(p => statusOf(s.id, p.no) === 'draf').length, lr = last(s.id);
+        const l = doneOf(s.id), d = window.SILABUS.filter(p => statusOf(s.id, p.no) === 'draf').length, tg = window.SILABUS.filter(p => statusOf(s.id, p.no) === 'tunggu').length, lr = last(s.id);
         return `<tr data-href="#/lihat/${s.id}" class="clickrow"><td><div class="row" style="flex-wrap:nowrap;gap:12px">${ring(l, 22, 44)}<div><b>${esc(s.nama)}</b><div class="tiny muted">${esc(s.ksNama || 'Kepala sekolah belum diisi')}</div></div></div></td>
-          <td>${fasilChips(s)}</td><td><span class="pill lengkap">${l} lengkap</span> ${d ? `<span class="pill draf">${d} draf</span>` : ''}</td>
+          <td>${fasilChips(s)}</td><td><span class="pill lengkap">${l} lengkap</span> ${tg ? `<span class="pill tunggu">${tg} menunggu pengesahan</span> ` : ''}${d ? `<span class="pill draf">${d} draf</span>` : ''}</td>
           <td class="small">${lr ? `P${lr.no} · ${esc(String(lr.updatedBy || '').split(',')[0])}<div class="tiny muted">${fmtWaktu(lr.updatedAt)}</div>` : '<span class="muted">—</span>'}</td>
           <td>${ic('arrowR')}</td></tr>`;
       }).join('');
@@ -1300,7 +1375,7 @@
       });
       app.innerHTML = pageHead('Lihat Laporan', 'Pantau perkembangan laporan setiap sekolah dan fasilitator. Klik sekolah untuk melihat laporannya.') + `
         <div class="stats" style="margin-bottom:18px"><div class="stat"><b>${sk.length}</b><span>sekolah binaan</span></div><div class="stat ok"><b>${lengkap}</b><span>laporan lengkap</span></div>
-          <div class="stat warn"><b>${draf}</b><span>masih draf</span></div><div class="stat gold"><b>${tot ? Math.round(lengkap / tot * 100) : 0}%</b><span>progres program (${lengkap}/${tot})</span></div></div>
+          <div class="stat warn"><b>${draf}</b><span>masih draf</span></div><div class="stat"><b>${tunggu}</b><span>menunggu pengesahan</span></div><div class="stat gold"><b>${tot ? Math.round(lengkap / tot * 100) : 0}%</b><span>progres program (${lengkap}/${tot})</span></div></div>
         ${sk.length ? `<div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table class="tb"><thead><tr><th>Sekolah</th><th>Fasilitator</th><th>Status</th><th>Terakhir diperbarui</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div>`
           : emptyState('school', 'Belum ada sekolah binaan', isAdmin() ? 'Tambahkan di menu Data Sekolah.' : '')}
         ${fas.length ? `<div class="sec"><h2>Per fasilitator</h2></div><div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table class="tb"><thead><tr><th>Fasilitator</th><th>Sekolah binaan</th><th style="width:30%">Progres</th></tr></thead><tbody>
@@ -1318,21 +1393,21 @@
   async function renderUnduh() {
     const draw = () => {
       const sk = S.sekolah;
-      let lengkap = 0, draf = 0, total = 0;
+      let lengkap = 0, draf = 0, tunggu = 0, total = 0;
       const rows = sk.map(s => {
         const cells = window.SILABUS.map(p => {
           const st = statusOf(s.id, p.no); total++;
-          if (st === 'lengkap') lengkap++; else if (st === 'draf') draf++;
-          return `<td><button class="cell ${st}" data-cell="${s.id}|${p.no}" title="P${p.no} · ${esc(p.judul)} — ${st}${st === 'lengkap' ? ' (klik untuk unduh PDF)' : ''}">${p.no}</button></td>`;
+          if (st === 'lengkap') lengkap++; else if (st === 'draf') draf++; else if (st === 'tunggu') tunggu++;
+          return `<td><button class="cell ${st}" data-cell="${s.id}|${p.no}" title="P${p.no} · ${esc(p.judul)} — ${stLabel(st)}${st === 'lengkap' ? ' (klik untuk unduh PDF)' : ''}">${p.no}</button></td>`;
         }).join('');
         return `<tr><td class="sk"><b>${esc(s.nama)}</b><div class="tiny muted">${esc(fasilOf(s).map(u => namaUser(u).split(',')[0]).join(' & ') || '-')} · ${doneOf(s.id)}/22</div></td>${cells}</tr>`;
       }).join('');
       app.innerHTML = pageHead('Unduh Laporan', 'Klik kotak hijau untuk mengunduh PDF laporan yang sudah lengkap.') + `
-        <div class="stats" style="margin-bottom:18px"><div class="stat ok"><b>${lengkap}</b><span>laporan lengkap</span></div><div class="stat warn"><b>${draf}</b><span>masih draf</span></div>
-          <div class="stat"><b>${total - lengkap - draf}</b><span>belum dibuat</span></div><div class="stat gold"><b>${total ? Math.round(lengkap / total * 100) : 0}%</b><span>progres program</span></div></div>
+        <div class="stats" style="margin-bottom:18px"><div class="stat ok"><b>${lengkap}</b><span>laporan lengkap & disahkan</span></div><div class="stat"><b>${tunggu}</b><span>menunggu pengesahan</span></div><div class="stat warn"><b>${draf}</b><span>masih draf</span></div>
+          <div class="stat"><b>${total - lengkap - draf - tunggu}</b><span>belum dibuat</span></div><div class="stat gold"><b>${total ? Math.round(lengkap / total * 100) : 0}%</b><span>progres program</span></div></div>
         ${sk.length ? `<div class="matrix-wrap"><table class="matrix"><thead><tr class="fase"><th class="sk"></th><th colspan="7" class="f1">FASE 1</th><th colspan="9" class="f2">FASE 2</th><th colspan="6" class="f3">FASE 3</th></tr>
           <tr><th class="sk">Sekolah</th>${window.SILABUS.map(p => `<th title="${esc(p.judul)}">${p.no}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>
-          <div class="legend" style="margin:10px 2px 0"><span><i style="background:#f2f4f8"></i>Belum</span><span><i style="background:#fdebc0"></i>Draf</span><span><i style="background:#c9ecd8"></i>Lengkap — klik untuk unduh</span></div>`
+          <div class="legend" style="margin:10px 2px 0"><span><i style="background:#f2f4f8"></i>Belum</span><span><i style="background:#fdebc0"></i>Draf</span><span><i style="background:#dbe6fb"></i>Menunggu pengesahan</span><span><i style="background:#c9ecd8"></i>Lengkap & disahkan — klik untuk unduh</span></div>`
         : emptyState('school', 'Belum ada sekolah', '')}
         <div class="sec"><h2>Unduh sekaligus (ZIP)</h2></div>
         <div class="grid2">
@@ -1359,7 +1434,7 @@
     const key = R.key(s.id, no);
     const rk = S.rekap.get(key);
     let local = await DB.get('reports', key);
-    if (rk && rk.pdfId && rk.pdfAt >= rk.updatedAt && !(local && local._dirty)) {
+    if (rk && rk.pdfId && rk.pdfAt >= rk.updatedAt && rk.pdfAt >= lastSahAt(key) && !(local && local._dirty)) {
       const g = await API.call('getPdf', { key });
       return b64ToBytes(g.b64);
     }
@@ -1372,6 +1447,7 @@
     }
     normalize(rep);
     if (!R.isComplete(rep, s)) throw new Error(s.nama + ' P' + no + ' belum lengkap.');
+    if (!sahState(s.id, no).done) throw new Error(s.nama + ' P' + no + ' belum disahkan.');
     const bytes = await makePdfBytes(rep, s, false);
     if (!rep._dirty) await archivePdf(key, bytes, R.fileName(rep, s));
     return bytes;
@@ -1402,6 +1478,37 @@
   }
 
   /* =========================================================
+   * PENGESAHAN (kepala sekolah)
+   * ========================================================= */
+  async function renderPengesahan() {
+    const draw = () => {
+      const sk = S.sekolah.find(x => x.id === S.user.sekolahId) || S.sekolah[0];
+      const head = pageHead('Pengesahan', 'Periksa laporan pendampingan yang sudah disahkan fasilitator, lalu sahkan sebagai kepala sekolah.');
+      if (!sk) { app.innerHTML = head + emptyState('school', 'Akun belum terhubung ke sekolah', 'Hubungi admin program untuk memilih sekolah akun Anda.'); return; }
+      const items = window.SILABUS.map(p => ({ p, st: sahState(sk.id, p.no), c: contentOf(sk.id, p.no), rk: S.rekap.get(R.key(sk.id, p.no)) }));
+      const menunggu = items.filter(x => x.c === 'lengkap' && x.st.allFasil && !x.st.ks);
+      const fasilBelum = items.filter(x => x.c === 'lengkap' && !x.st.allFasil);
+      const sudah = items.filter(x => x.st.ks);
+      const tgl = x => x.rk && x.rk.tanggal ? esc(R.tanggalPanjang(x.rk.tanggal)) : '-';
+      const card = (x, btn) => `<a class="pick" href="#/laporan/${sk.id}/${x.p.no}/${NSTEP}"><span class="pno">P${x.p.no}</span>
+        <div style="min-width:0;flex:1"><h3>${esc(x.p.judul)}</h3><div class="meta">${tgl(x)}</div>
+        <div class="meta" style="margin-top:6px">${x.st.fasil.map(f => `<span class="pill ${f.rec ? 'lengkap' : 'kosong'}">${f.rec ? '✓' : '…'} ${esc(namaUser(f.u).split(',')[0])}</span>`).join(' ')}
+          ${x.st.ks ? `<span class="pill lengkap">✓ Disahkan ${fmtWaktu(x.st.ks.waktu)}</span>` : ''}${btn ? `<span class="pill navy">${btn}</span>` : ''}</div></div>${ic('arrowR')}</a>`;
+      app.innerHTML = head + `
+        <div class="stats" style="margin-bottom:18px"><div class="stat gold"><b>${menunggu.length}</b><span>menunggu pengesahan Anda</span></div>
+          <div class="stat"><b>${fasilBelum.length}</b><span>menunggu fasilitator</span></div>
+          <div class="stat ok"><b>${sudah.length}</b><span>sudah Anda sahkan</span></div>
+          <div class="stat"><b>${doneOf(sk.id)}/22</b><span>laporan ${esc(sk.nama)} lengkap</span></div></div>
+        <div class="sec"><h2>Menunggu pengesahan Anda</h2></div>
+        ${menunggu.length ? `<div class="picks">${menunggu.map(x => card(x, 'Perlu diperiksa &amp; disahkan')).join('')}</div>` : emptyState('check', 'Tidak ada laporan yang menunggu', 'Laporan muncul di sini setelah kedua fasilitator mengesahkannya.')}
+        ${fasilBelum.length ? `<div class="sec"><h2>Menunggu pengesahan fasilitator</h2></div><div class="picks">${fasilBelum.map(x => card(x, '')).join('')}</div>` : ''}
+        ${sudah.length ? `<div class="sec"><h2>Sudah disahkan</h2></div><div class="picks">${sudah.map(x => card(x, '')).join('')}</div>` : ''}`;
+    };
+    draw();
+    if (await refreshRekap(true)) { if (location.hash === '#/pengesahan') draw(); }
+  }
+
+  /* =========================================================
    * TOTAL REWARD — rekap bintang per peserta, per pendampingan
    * ========================================================= */
   const rewardSchools = () => S.user && S.user.peran === 'fasilitator' ? S.sekolah.filter(s => canFill(s)) : S.sekolah;
@@ -1419,8 +1526,8 @@
   async function renderReward() {
     const draw = () => {
       const list = rewardSchools();
-      const fas = S.user.peran === 'fasilitator';
-      const sub = fas ? 'Rekap bintang peserta di sekolah binaan Anda. Bintang diisi di langkah Reward pada setiap laporan pendampingan.'
+      const fas = S.user.peran === 'fasilitator' || isKepsek();
+      const sub = fas ? 'Rekap bintang peserta di sekolah ' + (isKepsek() ? 'Anda' : 'binaan Anda') + '. Bintang diisi di langkah Reward pada setiap laporan pendampingan.'
         : 'Rekap bintang peserta setiap sekolah. Bintang diisi fasilitator di langkah Reward pada setiap laporan pendampingan.';
       if (!list.length) { app.innerHTML = pageHead('Total Reward', sub) + emptyState('star', fas ? 'Anda belum ditugaskan ke sekolah' : 'Belum ada sekolah binaan', fas ? 'Hubungi admin program.' : ''); return; }
       if (!S.rwSk || !list.some(s => s.id === S.rwSk)) S.rwSk = list[0].id;
@@ -1462,15 +1569,15 @@
    * ========================================================= */
   const skOfUser = u => S.sekolah.filter(s => inFasil(s, u.username)).map(s => s.nama);
   async function renderPengguna() {
-    const head = pageHead('Kelola Pengguna', 'Akun fasilitator, admin, dan pemantau.', `<button class="btn pri" data-act="user-new">${ic('plus')}Tambah pengguna</button>`);
+    const head = pageHead('Kelola Pengguna', 'Akun admin, fasilitator, kepala sekolah, dan pemantau.', `<button class="btn pri" data-act="user-new">${ic('plus')}Tambah pengguna</button>`);
     app.innerHTML = head + '<div class="loading"><span class="spin"></span> Memuat…</div>';
     let users, usage = null;
     try { users = await API.call('listUsers'); } catch (e) { app.innerHTML = head + emptyState('alert', 'Gagal memuat', esc(e.message)); return; }
     try { usage = await API.call('usage'); } catch (e) { /* abaikan */ }
     S.users = users;
-    S.pengguna = users.map(u => ({ username: u.username, nama: u.nama, peran: u.peran, aktif: u.aktif, nip: u.nip })); cacheBoot();
+    S.pengguna = users.map(u => ({ username: u.username, nama: u.nama, peran: u.peran, aktif: u.aktif, nip: u.nip, sekolahId: u.sekolahId || '' })); cacheBoot();
     const pct = usage ? Math.round(usage.used / usage.limit * 1000) / 10 : 0;
-    const order = { admin: 0, fasilitator: 1, pemantau: 2 };
+    const order = { admin: 0, fasilitator: 1, kepsek: 2, pemantau: 3 };
     const list = users.slice().sort((a, b) => (order[a.peran] - order[b.peran]) || a.nama.localeCompare(b.nama, 'id'));
     app.innerHTML = head + `
       <div class="card" style="padding:0;overflow:hidden"><div class="ulist">
@@ -1480,8 +1587,8 @@
           return `<div class="urow${u.aktif ? '' : ' off'}">
             <span class="bubble">${esc(initials(u.nama))}</span>
             <div class="um"><b>${esc(u.nama)}</b><span>${esc(u.username)}${u.nip ? ' · NIP ' + esc(u.nip) : ''}${eqU(u.username, S.user.username) ? ' · <i>Anda</i>' : ''}</span></div>
-            <div class="ur"><span class="pill ${u.peran === 'admin' ? 'navy' : u.peran === 'fasilitator' ? 'gold' : 'kosong'}">${PERAN[u.peran]}</span>${u.aktif ? '' : ' <span class="pill draf">nonaktif</span>'}</div>
-            <div class="us small">${sks.length ? esc(sks.join(', ')) : '<span class="muted">—</span>'}
+            <div class="ur"><span class="pill ${u.peran === 'admin' ? 'navy' : u.peran === 'fasilitator' ? 'gold' : u.peran === 'kepsek' ? 'tunggu' : 'kosong'}">${PERAN[u.peran]}</span>${u.aktif ? '' : ' <span class="pill draf">nonaktif</span>'}</div>
+            <div class="us small">${u.peran === 'kepsek' ? (school(u.sekolahId) ? 'Kepala ' + esc(school(u.sekolahId).nama) : '<span class="muted">sekolah belum dipilih</span>') : sks.length ? esc(sks.join(', ')) : '<span class="muted">—</span>'}
               ${salah ? `<div class="warnline">${ic('alert')} Peran ${PERAN[u.peran]} tidak bisa mengisi laporan sekolah ini</div>` : ''}</div>
             <div class="ul tiny muted">${u.terakhirLogin ? 'Login ' + fmtWaktu(Date.parse(u.terakhirLogin)) : 'Belum pernah login'}</div>
             <button class="btn sm" data-act="user-edit" data-u="${esc(u.username)}">${ic('edit')}Edit</button>
@@ -1492,6 +1599,7 @@
         <div class="card"><div class="card-h">${ic('info')}<h3>Peran</h3></div><ul class="small" style="margin:0;padding-left:18px">
           <li><b>Admin</b> — mengelola pengguna, pengaturan program, sekolah binaan & pasangan fasilitator; melihat semua laporan.</li>
           <li><b>Fasilitator</b> — melengkapi data sekolah binaannya & mengisi laporannya; melihat & mengunduh semua laporan.</li>
+          <li><b>Kepala Sekolah</b> — melihat laporan sekolahnya sendiri dan mengesahkannya setelah kedua fasilitator mengesahkan.</li>
           <li><b>Pemantau</b> — hanya melihat & mengunduh.</li></ul></div>
         ${usage ? `<div class="card"><div class="card-h">${ic('cloud')}<h3>Penyimpanan Google Drive admin</h3></div><div class="bar big"><i style="width:${Math.min(100, pct)}%"></i></div>
           <p class="small" style="margin:10px 0 0">${(usage.used / 1073741824).toFixed(2)} GB dari ${(usage.limit / 1073741824).toFixed(0)} GB terpakai (${pct}%) — termasuk Gmail & Google Photos akun admin.</p></div>` : ''}
@@ -1510,8 +1618,11 @@
         <div class="grid2">
           <div><label class="f">Username</label><input type="text" id="um-user" value="${esc(u ? u.username : '')}" placeholder="mis. anton" autocomplete="off">
             <div class="tiny muted" style="margin-top:4px">3–30 karakter, tanpa spasi</div></div>
-          <div><label class="f">Peran</label><select id="um-peran"${self ? ' disabled' : ''}>${opts(['fasilitator', 'pemantau', 'admin'], u ? u.peran : 'fasilitator', ['Fasilitator', 'Pemantau', 'Admin'])}</select></div>
+          <div><label class="f">Peran</label><select id="um-peran"${self ? ' disabled' : ''}>${opts(['fasilitator', 'kepsek', 'pemantau', 'admin'], u ? u.peran : 'fasilitator', ['Fasilitator', 'Kepala Sekolah', 'Pemantau', 'Admin'])}</select></div>
         </div>
+        <div id="um-skwrap" style="margin-top:14px;display:none"><label class="f">Sekolah yang dipimpin</label>
+          <select id="um-sk"><option value="">— pilih sekolah —</option>${S.sekolah.map(x => `<option value="${x.id}"${u && u.sekolahId === x.id ? ' selected' : ''}>${esc(x.nama)}${x.ksNama ? ' · KS: ' + esc(x.ksNama) : ''}</option>`).join('')}</select>
+          <div class="tiny muted" style="margin-top:4px">Kepala sekolah hanya melihat laporan sekolah ini dan mengesahkannya. Nama & NIP akun ini yang tercetak di Lembar Pengesahan.</div></div>
         <div style="margin-top:14px"><label class="f">Nama lengkap (dengan gelar)</label><input type="text" id="um-nama" value="${esc(u ? u.nama : '')}" placeholder="Anton Widiyatmoko, S.Pd., M.Pd."></div>
         <div class="grid2" style="margin-top:14px">
           <div><label class="f">NIP (opsional)</label><input type="text" id="um-nip" value="${esc(u ? u.nip : '')}" inputmode="numeric"></div>
@@ -1528,6 +1639,7 @@
     document.body.appendChild(bg);
     const $ = id => bg.querySelector('#' + id);
     const warn = () => {
+      $('um-skwrap').style.display = $('um-peran').value === 'kepsek' ? 'block' : 'none';
       const w = $('um-warn'); const msgs = [];
       const nu = $('um-user').value.trim();
       if (u && nu && nu !== u.username) msgs.push(`Username <b>${esc(u.username)}</b> akan diganti menjadi <b>${esc(nu)}</b>. Sekolah, laporan, dan sesi login ikut diperbarui otomatis. Sampaikan username baru ke yang bersangkutan.`);
@@ -1543,7 +1655,8 @@
       if (act === 'close') return close();
       if (act === 'save') {
         const d = { mode: create ? 'create' : 'edit', username: create ? $('um-user').value.trim() : u.username, nama: $('um-nama').value.trim(),
-          nip: $('um-nip').value, peran: $('um-peran').value };
+          nip: $('um-nip').value, peran: $('um-peran').value, sekolahId: $('um-sk').value };
+        if (d.peran === 'kepsek' && !d.sekolahId) return toast('Pilih sekolah untuk akun Kepala Sekolah.', true);
         if (create) { d.password = $('um-pass').value; d.aktif = true; }
         else { d.aktif = (bg.querySelector('input[name="um-aktif"]:checked') || {}).value !== '0'; const nu = $('um-user').value.trim(); if (nu !== u.username) d.newUsername = nu; }
         if (!d.username || !d.nama) return toast('Isi username dan nama lengkap.', true);
@@ -1616,7 +1729,7 @@
       const [sid, no] = cell.dataset.cell.split('|');
       const st = statusOf(sid, +no);
       if (st === 'lengkap') return downloadOne(sid, +no);
-      if (S.user.peran === 'pemantau') return toast(st === 'kosong' ? 'Laporan belum dibuat.' : 'Laporan masih draf.', true);
+      if (S.user.peran === 'pemantau') return toast(st === 'kosong' ? 'Laporan belum dibuat.' : st === 'tunggu' ? 'Laporan menunggu pengesahan.' : 'Laporan masih draf.', true);
       location.hash = `#/laporan/${sid}/${no}/1`; return;
     }
     const b = e.target.closest('[data-act]');
@@ -1714,6 +1827,27 @@
         touch(); rerenderStep(); break;
       }
       case 'rw-sk': S.rwSk = b.dataset.sid; renderReward(); break;
+      case 'sahkan': {
+        const sebagai = isKepsek() ? 'Kepala Sekolah' : 'Fasilitator';
+        if (!confirm(`Sahkan laporan ${s.nama} P${rep.no} sebagai ${sebagai}?\n\nDengan mengesahkan, Anda menyatakan sudah memeriksa isi laporan ini. Kode QR atas nama Anda akan tercetak di PDF.`)) return;
+        b.disabled = true;
+        try {
+          const list = await API.call('sahkan', { key: rep.key, baseVersion: rep._version || 0 });
+          S.sah.set(rep.key, list); cacheBoot(); renderEditor(); toast('Laporan disahkan sebagai ' + sebagai + '.');
+        } catch (er) {
+          toast(er.offline ? 'Pengesahan perlu koneksi internet.' : er.message, true, 6000); b.disabled = false;
+          if (er.code === 'CONFLICT') { refreshFromServer(rep.key); refreshRekap(true); }
+        }
+        break;
+      }
+      case 'unlock': {
+        const n = (S.sah.get(rep.key) || []).length;
+        if (!confirm(`Buka kunci laporan ini?\n\n${n} pengesahan akan dibatalkan. Setelah selesai mengubah, fasilitator dan kepala sekolah perlu mengesahkan ulang.`)) return;
+        b.disabled = true;
+        try { await API.call('batalSah', { key: rep.key }); S.sah.delete(rep.key); cacheBoot(); renderEditor(); toast('Kunci dibuka. Pengesahan sebelumnya dibatalkan.'); }
+        catch (er) { toast(er.offline ? 'Membuka kunci perlu koneksi internet.' : er.message, true, 6000); b.disabled = false; }
+        break;
+      }
       case 'tempat-sekolah': rep.tempat = s.nama; document.querySelector('[data-r=tempat]').value = s.nama; touch(); updatePreviews(); break;
       case 'hadir': {
         const set = new Set(rep.hadir || []);
@@ -1772,7 +1906,7 @@
       }
       case 'conf-mine': rep._conflict = null; rep._force = true; touch(); await flushCur(); Sync.run(); rerenderStep(); break;
       case 'preview': b.disabled = true; try { await previewPdf(); } catch (er) { console.error(er); toast('Gagal menyusun PDF: ' + er.message, true, 6000); } b.disabled = false; break;
-      case 'download': b.disabled = true; try { await downloadCur(); } catch (er) { console.error(er); toast('Gagal menyusun PDF: ' + er.message, true, 6000); } b.disabled = !R.isComplete(rep, s); break;
+      case 'download': b.disabled = true; try { await downloadCur(); } catch (er) { console.error(er); toast('Gagal menyusun PDF: ' + er.message, true, 6000); } b.disabled = !isFinal(rep, s); break;
       case 'del-report':
         if (!confirm('Hapus laporan ini? Folder laporan (isian, foto, PDF) dipindah ke Sampah Google Drive.')) return;
         try {

@@ -1,9 +1,10 @@
-# LAPORAN CERMAT v2.4
+# LAPORAN CERMAT v2.5
 
 Aplikasi web untuk menyusun **laporan 22 pendampingan Program CERMAT** (Cerdas Numerasi dan Matematika Terapan), dipakai bersama oleh semua fasilitator.
 
 - **Data bersama di Google Drive** akun admin, dengan Google Apps Script sebagai server. Gratis.
-- **Akun masing-masing dengan peran:** Admin, Fasilitator, dan Pemantau (hanya melihat dan mengunduh).
+- **Akun masing-masing dengan peran:** Admin, Fasilitator, Kepala Sekolah, dan Pemantau (hanya melihat dan mengunduh).
+- **Pengesahan elektronik (QR).** Fasilitator 1 & 2 mengesahkan dari akun masing-masing, lalu Kepala Sekolah. Kode QR tercetak di *Lembar Pengesahan* (setelah sampul) dan *Jurnal Kegiatan*; pindai untuk membuka halaman verifikasi. Laporan yang sudah disahkan terkunci; membuka kuncinya membatalkan semua pengesahan.
 - **Data sekolah dibagi.** Admin mendaftarkan sekolah dan memasangkan Fasilitator 1 & 2; fasilitator melengkapi nama & NIP kepala sekolah serta data guru.
 - **Reward bintang.** Fasilitator mengisi bintang setiap peserta yang hadir di langkah *Reward*; totalnya terakumulasi dari P1–P22, tercetak di PDF, dan bisa dipantau di menu *Total Reward*.
 - **Jurnal kegiatan ditandatangani** kepala sekolah dan fasilitator yang hadir.
@@ -16,13 +17,13 @@ Aplikasi web untuk menyusun **laporan 22 pendampingan Program CERMAT** (Cerdas N
 
 ## Menu
 
-| Admin | Fasilitator | Pemantau |
-|---|---|---|
-| Kelola Pengguna | Data Sekolah | Data Sekolah |
-| Data Sekolah | Buat Laporan | Lihat Laporan |
-| Lihat Laporan (pemantauan, hanya baca) | Unduh Laporan | Unduh Laporan |
-| Unduh Laporan | Total Reward (sekolah binaan) | Total Reward |
-| Total Reward | | |
+| Admin | Fasilitator | Kepala Sekolah | Pemantau |
+|---|---|---|---|
+| Kelola Pengguna | Data Sekolah | Pengesahan | Data Sekolah |
+| Data Sekolah | Buat Laporan | Laporan Sekolah (hanya baca) | Lihat Laporan |
+| Lihat Laporan (pemantauan, hanya baca) | Unduh Laporan | Unduh Laporan | Unduh Laporan |
+| Unduh Laporan | Total Reward (sekolah binaan) | Total Reward (sekolahnya) | Total Reward |
+| Total Reward | | | |
 
 Langkah form laporan:
 1. Pelaksanaan (fasil hadir, tanggal DD/MM/YYYY, jam, tempat)
@@ -31,7 +32,7 @@ Langkah form laporan:
 4. Evaluasi
 5. Reward (bintang untuk peserta yang hadir; hanya fasilitator pemegang sekolah yang bisa mengisi)
 6. Lampiran
-7. Periksa & Unduh
+7. Periksa & Unduh (daftar periksa, pengesahan, unduh PDF)
 
 Langkah pelaksanaan kegiatan selalu persis sesuai silabus.
 
@@ -58,7 +59,8 @@ js/importer.js      baca respons Google Form
 js/report.js        kalimat otomatis, nilai, daftar periksa
 js/pdf.js           penyusun PDF A4
 js/app.js           antarmuka
-vendor/             pdf-lib 1.17.1 & JSZip 3.10.1 (MIT)
+vendor/             pdf-lib 1.17.1, JSZip 3.10.1 & qrcode-generator 1.4.4 (MIT)
+verifikasi.html     halaman verifikasi kode QR pengesahan
 apps-script/Code.gs server (ditempel di Google Apps Script)
 ```
 

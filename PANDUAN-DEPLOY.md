@@ -1,4 +1,4 @@
-# Panduan Pemasangan LAPORAN CERMAT v2.4
+# Panduan Pemasangan LAPORAN CERMAT v2.5
 
 Aplikasi terdiri dari dua bagian:
 
@@ -90,7 +90,7 @@ Pemasangan cukup **sekali**, sekitar 15 menit.
 
 ---
 
-## C2. Upgrade dari versi sebelumnya (v2 – v2.3)
+## C2. Upgrade dari versi sebelumnya (v2 – v2.4)
 
 1. Di Apps Script, ganti seluruh isi `Code.gs` dengan file baru → **Ctrl+S**.
 2. **Deploy → Manage deployments** → ✏ → *Version*: **New version** → **Deploy**. URL tetap sama.
@@ -98,6 +98,8 @@ Pemasangan cukup **sekali**, sekitar 15 menit.
 4. Buka aplikasi dan tekan **Ctrl+Shift+R** sekali.
 
 Data lama tetap aman. Kolom baru di Sheets ditambahkan otomatis.
+
+**Catatan v2.5 (Pengesahan QR):** kerjakan langkah 1–2 (server) **sebelum** langkah 3. Sheet `Pengesahan` dan kolom `sekolahId` di sheet `Pengguna` dibuat otomatis. Setelah itu, admin membuat akun **Kepala Sekolah** untuk setiap sekolah di *Kelola Pengguna* (peran *Kepala Sekolah*, pilih sekolahnya, isi nama & NIP). Laporan yang sebelumnya lengkap berstatus *menunggu pengesahan* sampai fasilitator 1 & 2 dan kepala sekolah mengesahkannya; arsip PDF lama di Drive tetap ada.
 
 **Catatan v2.4 (Reward):** kerjakan langkah 1–2 (server) **sebelum** langkah 3 (GitHub), supaya bintang yang diisi langsung tercatat di kolom `reward` sheet `Rekap`. Langkah **Reward** sekarang wajib. Laporan lama yang sudah lengkap tetap tercatat lengkap dan PDF arsipnya tetap bisa diunduh, tetapi begitu dibuka dan diubah lagi, laporan itu menjadi draf sampai bintang semua peserta hadir diisi.
 

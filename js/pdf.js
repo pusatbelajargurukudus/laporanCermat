@@ -19,6 +19,29 @@
   const REPL = { '→': '->', '←': '<-', '≤': '<=', '≥': '>=', '−': '-', ' ': ' ', '‐': '-', '‑': '-',
     ' ': ' ', ' ': ' ', '​': '', '\t': ' ', '′': "'", '″': '"', '×': '×' };
 
+  /* ---------- Pengesahan elektronik (QR) ---------- */
+  const pad2 = n => String(n).padStart(2, '0');
+  const isoOf = ms => { const d = new Date(Number(ms)); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); };
+  const waktuSah = ms => { const d = new Date(Number(ms)); return pad2(d.getDate()) + '/' + pad2(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + pad2(d.getHours()) + '.' + pad2(d.getMinutes()); };
+  const verifyUrl = (base, id) => base + (base.indexOf('?') >= 0 ? '&' : '?') + 'id=' + encodeURIComponent(id);
+
+  /* Gambar kode QR sebagai kotak-kotak vektor (tajam saat dicetak). top = jarak dari atas halaman. */
+  function drawQR(page, text, x, top, size) {
+    const q = qrcode(0, 'M');
+    q.addData(text); q.make();
+    const n = q.getModuleCount(), quiet = 2, cell = size / (n + quiet * 2);
+    page.drawRectangle({ x, y: H - top - size, width: size, height: size, color: rgb(1, 1, 1) });
+    for (let r = 0; r < n; r++) {
+      let c = 0;
+      while (c < n) {
+        if (!q.isDark(r, c)) { c++; continue; }
+        let e = c; while (e < n && q.isDark(r, e)) e++;
+        page.drawRectangle({ x: x + (quiet + c) * cell, y: H - top - (quiet + r + 1) * cell, width: (e - c) * cell + 0.05, height: cell + 0.05, color: rgb(0, 0, 0) });
+        c = e;
+      }
+    }
+  }
+
   function dataUrlBytes(url) {
     const b64 = url.split(',')[1];
     const bin = atob(b64);
@@ -313,6 +336,64 @@
       pg.drawText(t, { x: ML, y: 70, size: 10, font: fonts.reg, color: GREY });
     }
 
+    /* ---------- Lembar pengesahan ---------- */
+    const sah = settings.sah || null;
+    if (sah) {
+      w.newPage();
+      const p2 = w.page;
+      w.y = MT + 6;
+      w.para('LEMBAR PENGESAHAN', { align: 'center', font: fonts.bold, size: 15, after: 14 });
+      w.para('Laporan Pendampingan ' + rep.no + ': ' + sil.judul, { align: 'center', font: fonts.bold, size: 11.5, after: 2, x: 0 });
+      w.para('Program ' + (settings.program || 'CERMAT') + (settings.programKepanjangan ? ' (' + settings.programKepanjangan + ')' : ''), { align: 'center', size: 11, after: 2, x: 0 });
+      w.para('Sekolah Sasaran: ' + (school ? school.nama : ''), { align: 'center', size: 11, after: 2, x: 0 });
+      w.para('Tanggal pelaksanaan: ' + (R.tanggalPanjang(rep.tanggal) || '-'), { align: 'center', size: 11, after: 18, x: 0 });
+      w.para('Laporan pelaksanaan pendampingan ini telah disusun dan diperiksa kebenarannya oleh fasilitator, serta telah diketahui dan disetujui oleh kepala sekolah sasaran.', { x: 0, first: 28, after: 22 });
+
+      const QR = 82, sz = 10.5;
+      const block = (c, cx, top) => {
+        let y = top;
+        const center = (t, font, size, color) => {
+          w.wrap(t, font, size, 200).forEach(ln => {
+            const tw = font.widthOfTextAtSize(ln.words.join(' '), size);
+            p2.drawText(ln.words.join(' '), { x: cx - tw / 2, y: H - y - size, size, font, color: color || INK });
+            y += size * 1.4;
+          });
+        };
+        if (c.head) center(c.head, fonts.reg, sz);
+        center(c.title, fonts.reg, sz);
+        y += 6;
+        if (c.rec) {
+          drawQR(p2, verifyUrl(sah.verifyBase, c.rec.id), cx - QR / 2, y, QR);
+          y += QR + 3;
+          center('Disahkan secara elektronik, ' + waktuSah(c.rec.waktu), fonts.ital, 7.5, GREY);
+        } else {
+          p2.drawRectangle({ x: cx - QR / 2, y: H - y - QR, width: QR, height: QR, borderColor: LINE, borderWidth: 0.6, borderDashArray: [3, 3] });
+          const t = 'belum disahkan', tw = fonts.ital.widthOfTextAtSize(t, 8);
+          p2.drawText(t, { x: cx - tw / 2, y: H - y - QR / 2 - 3, size: 8, font: fonts.ital, color: GREY });
+          y += QR + 3 + 7.5 * 1.4;
+        }
+        y += 2;
+        center(c.nama || '(..................................................)', fonts.bold, sz);
+        if (c.nip) center('NIP. ' + c.nip, fonts.reg, sz);
+        return y;
+      };
+      const ksRec = sah.ks && sah.ks.rec;
+      const tgl = ksRec ? (R.tanggalPanjang(isoOf(ksRec.waktu)) || '').split(', ')[1] : '';
+      const fs = sah.fasil || [];
+      const colX = fs.length > 1 ? [ML + CW * 0.25, ML + CW * 0.75] : [ML + CW * 0.5];
+      const kota = w.clean((settings.kota || 'Kudus') + ', ' + (tgl || '...............................'));
+      const kw = fonts.reg.widthOfTextAtSize(kota, sz);
+      p2.drawText(kota, { x: colX[colX.length - 1] - kw / 2, y: H - w.y - sz, size: sz, font: fonts.reg, color: INK });
+      w.y += sz * 1.4 + 4;
+      let bottom = w.y;
+      fs.forEach((f, i) => { bottom = Math.max(bottom, block(f, colX[i] || colX[0], w.y)); });
+      w.y = bottom + 26;
+      if (sah.ks) w.y = block(Object.assign({ head: 'Mengetahui dan menyetujui,' }, sah.ks), ML + CW / 2, w.y);
+      const note = 'Dokumen ini disahkan secara elektronik. Pindai kode QR untuk memeriksa keabsahannya.';
+      const nw = fonts.ital.widthOfTextAtSize(note, 8.5);
+      p2.drawText(note, { x: ML + (CW - nw) / 2, y: MB + 12, size: 8.5, font: fonts.ital, color: GREY });
+    }
+
     /* ---------- Halaman daftar isi (diisi di akhir) ---------- */
     w.newPage();
     const tocPage = w.page;
@@ -445,9 +526,13 @@
 
       // ----- tanda tangan: kepala sekolah & fasilitator yang hadir -----
       const ks = settings.kepala || {};
-      const cols = [{ head: 'Mengetahui,', title: 'Kepala ' + (school ? school.nama : 'Sekolah'), nama: ks.nama || '(..................................................)', nip: ks.nip }]
-        .concat(fasil.map((f, i) => ({ head: '', title: fasil.length > 1 ? 'Fasilitator ' + (i + 1) : 'Fasilitator', nama: f.nama, nip: f.nip })));
-      w.ensure(130);
+      const ksSah = sah && sah.ks && sah.ks.rec;
+      const fRec = u => sah ? ((sah.fasil || []).find(x => x.username && u && x.username.toLowerCase() === String(u).toLowerCase()) || {}).rec : null;
+      const cols = [{ head: 'Mengetahui,', title: 'Kepala ' + (school ? school.nama : 'Sekolah'), nama: (ksSah && ksSah.nama) || ks.nama || '(..................................................)', nip: ksSah ? ksSah.nip : ks.nip, rec: ksSah }]
+        .concat(fasil.map((f, i) => { const r = fRec(f.username); return { head: '', title: fasil.length > 1 ? 'Fasilitator ' + (i + 1) : 'Fasilitator', nama: (r && r.nama) || f.nama, nip: r ? r.nip : f.nip, rec: r }; }));
+      const anyQR = cols.some(c => c.rec);
+      const QJ = 64;
+      w.ensure(anyQR ? 160 : 130);
       w.y += 10;
       const x0 = ML + IND, tw = CW - IND;
       const cw = tw / cols.length;
@@ -468,7 +553,11 @@
         };
         if (c.head) line(c.head, fonts.reg); else y += sz * 1.35;
         line(c.title, fonts.reg);
-        y += 48;
+        if (c.rec) {
+          drawQR(w.page, verifyUrl(sah.verifyBase, c.rec.id), x, y + 4, QJ);
+          w.page.drawText('Disahkan secara elektronik', { x, y: H - (y + 4 + QJ + 9), size: 7, font: fonts.ital, color: GREY });
+          y += QJ + 18;
+        } else y += anyQR ? QJ + 18 : 48;
         line(c.nama, fonts.bold);
         if (c.nip) line('NIP. ' + c.nip, fonts.reg);
         maxY = Math.max(maxY, y);
@@ -523,7 +612,9 @@
         p.drawText(t, { x: W / 2 - fonts.reg.widthOfTextAtSize(t, 9.5) / 2, y: 34, size: 9.5, font: fonts.reg, color: GREY });
       }
       if (flags.draft) {
-        p.drawText('DRAF', { x: 150, y: 300, size: 130, font: fonts.bold, color: rgb(0.85, 0.2, 0.2), opacity: 0.1, rotate: degrees(40) });
+        const t = typeof flags.draft === 'string' ? flags.draft : 'DRAF';
+        const size = Math.min(130, 640 / fonts.bold.widthOfTextAtSize(t, 1));
+        p.drawText(t, { x: 150 - (size < 130 ? 60 : 0), y: 300 - (size < 130 ? 80 : 0), size, font: fonts.bold, color: rgb(0.85, 0.2, 0.2), opacity: 0.1, rotate: degrees(40) });
       }
     });
 

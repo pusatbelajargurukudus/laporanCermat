@@ -3,7 +3,7 @@
  * --------------------------------------------------------------
  * Semua data disimpan di Google Drive akun pemilik skrip ini:
  *   LAPORAN CERMAT/
- *     Database CERMAT (Google Sheets) : Pengguna, Sekolah, Peserta, Program, Rekap, Berkas, Sesi, Log
+ *     Database CERMAT (Google Sheets) : Pengguna, Sekolah, Peserta, Program, Rekap, Berkas, Sesi, Log, Pengesahan
  *     <Nama Sekolah>/P01 <Judul>/laporan.json, foto, scan, PDF arsip
  *
  * Cara pasang: lihat PANDUAN-DEPLOY.md
@@ -12,17 +12,17 @@
  *   3. Deploy > New deployment > Web app (Execute as: Me, Who has access: Anyone)
  */
 
-var APP_VERSION = '2.4.0';
-var SCHEMA = '2.2';
+var APP_VERSION = '2.5.0';
+var SCHEMA = '2.3';
 var SESSION_DAYS = 30;
 var MAX_FAIL = 5;          // salah sandi berturut-turut
 var LOCK_SECONDS = 600;    // lama kunci setelah salah sandi (detik)
 var HASH_ROUNDS = 120;
-var ROLES = ['admin', 'fasilitator', 'pemantau'];
+var ROLES = ['admin', 'fasilitator', 'pemantau', 'kepsek'];
 var PROGRAM_KEYS = ['program', 'programKepanjangan', 'penyelenggara', 'kota', 'kopId'];
 
 var SHEETS = {
-  Pengguna: ['username', 'nama', 'peran', 'salt', 'hash', 'aktif', 'dibuat', 'terakhirLogin', 'nip'],
+  Pengguna: ['username', 'nama', 'peran', 'salt', 'hash', 'aktif', 'dibuat', 'terakhirLogin', 'nip', 'sekolahId'],
   Sekolah: ['id', 'nama', 'alias', 'fasil', 'folderId', 'urutan', 'ksNama', 'ksNip'],
   Peserta: ['id', 'sekolahId', 'nama', 'jabatan', 'kelas'],
   Program: ['kunci', 'nilai'],
@@ -30,7 +30,8 @@ var SHEETS = {
     'fileId', 'folderId', 'pdfId', 'pdfAt', 'updatedAt', 'updatedBy', 'version', 'reward'],
   Berkas: ['fileId', 'key', 'jenis', 'dibuat'],
   Sesi: ['tokenHash', 'username', 'expires'],
-  Log: ['waktu', 'username', 'aksi', 'detail']
+  Log: ['waktu', 'username', 'aksi', 'detail'],
+  Pengesahan: ['id', 'key', 'peran', 'username', 'nama', 'nip', 'version', 'waktu', 'aktif', 'batalAt']
 };
 
 /* =============================================================
@@ -113,10 +114,11 @@ function doPost(e) {
 
 var ACTIONS = {
   ping: { pub: true, fn: function () { return { version: APP_VERSION }; } },
+  verify: { pub: true, fn: verify_ },
   login: { pub: true, fn: login_ },
   logout: { fn: function (req, user) { removeSession_(req.token); return true; } },
   bootstrap: { fn: bootstrap_ },
-  rekap: { fn: function () { return rekapList_(); } },
+  rekap: { fn: function (req, user) { return rekapList_(user); } },
   changePassword: { fn: changePassword_ },
 
   saveProgram: { role: 'admin', fn: saveProgram_ },
@@ -134,6 +136,8 @@ var ACTIONS = {
   deleteImage: { fn: deleteImage_ },
   savePdf: { fn: savePdf_ },
   getPdf: { fn: getPdf_ },
+  sahkan: { fn: sahkan_ },
+  batalSah: { fn: batalSah_ },
 
   listUsers: { role: 'admin', fn: listUsers_ },
   saveUser: { role: 'admin', fn: saveUser_ },
@@ -245,7 +249,7 @@ function sha_(s) {
 }
 
 function publicUser_(u) {
-  return { username: u.username, nama: u.nama, peran: u.peran, aktif: u.aktif === 'ya', nip: u.nip || '' };
+  return { username: u.username, nama: u.nama, peran: u.peran, aktif: u.aktif === 'ya', nip: u.nip || '', sekolahId: u.sekolahId || '' };
 }
 
 function saveProfile_(req, user) {
@@ -277,15 +281,23 @@ function findUser_(uname) {
  * ============================================================= */
 function bootstrap_(req, user) {
   var prog = readProgram_();
+  var ok = function (sid) { return seesSekolah_(user, sid); };
   return {
     serverVersion: APP_VERSION,
     user: publicUser_(user),
     program: prog,
-    sekolah: rows_('Sekolah').map(sekolahOut_).sort(function (a, b) { return (a.urutan - b.urutan) || a.nama.localeCompare(b.nama); }),
-    peserta: rows_('Peserta').map(function (p) { return { id: p.id, sekolahId: p.sekolahId, nama: p.nama, jabatan: p.jabatan, kelas: p.kelas }; }),
+    sekolah: rows_('Sekolah').filter(function (s) { return ok(s.id); }).map(sekolahOut_).sort(function (a, b) { return (a.urutan - b.urutan) || a.nama.localeCompare(b.nama); }),
+    peserta: rows_('Peserta').filter(function (p) { return ok(p.sekolahId); }).map(function (p) { return { id: p.id, sekolahId: p.sekolahId, nama: p.nama, jabatan: p.jabatan, kelas: p.kelas }; }),
     pengguna: rows_('Pengguna').map(publicUser_),
-    rekap: rekapList_()
+    rekap: rekapList_(user),
+    pengesahan: sahList_(user)
   };
+}
+
+/* Kepala sekolah hanya melihat sekolahnya sendiri; peran lain melihat semua. */
+function seesSekolah_(user, sid) {
+  if (!user || user.peran !== 'kepsek') return true;
+  return !!user.sekolahId && String(user.sekolahId) === String(sid);
 }
 
 function sekolahOut_(s) {
@@ -303,8 +315,8 @@ function namaFasil_(s) {
   return fasilList_(s).map(function (u) { var x = findUser_(u); return x ? x.nama : u; }).join(' dan ') || 'admin';
 }
 
-function rekapList_() {
-  return rows_('Rekap').map(function (r) {
+function rekapList_(user) {
+  return rows_('Rekap').filter(function (r) { return seesSekolah_(user, r.sekolahId); }).map(function (r) {
     return { key: r.key, sekolahId: r.sekolahId, no: Number(r.no), status: r.status, tanggal: r.tanggal,
       rataPre: r.rataPre, rataPost: r.rataPost, pdfId: r.pdfId, pdfAt: Number(r.pdfAt) || 0,
       updatedAt: Number(r.updatedAt) || 0, updatedBy: r.updatedBy, version: Number(r.version) || 0,
@@ -466,8 +478,9 @@ function rekapRow_(key) {
   return rows_('Rekap').filter(function (r) { return r.key === key; })[0] || null;
 }
 
-function getReport_(req) {
+function getReport_(req, user) {
   var k = parseKey_(req.key);
+  if (!seesSekolah_(user, k.sekolahId)) throw err_('Anda hanya bisa melihat laporan sekolah Anda.', 'FORBIDDEN');
   var r = rekapRow_(req.key);
   if (!r || !r.fileId) return { report: null, version: r ? Number(r.version) || 0 : 0 };
   var json = DriveApp.getFileById(r.fileId).getBlob().getDataAsString('UTF-8');
@@ -538,6 +551,7 @@ function saveReport_(req, user) {
       fileId: fileId, updatedAt: String(t), updatedBy: user.nama || user.username, version: String(ver),
       reward: JSON.stringify(rewardHadir_(rep))
     });
+    if (batalkanSah_(rep.key, t)) log_(user.username, 'pengesahan batal', sk.nama + ' P' + k.no + ' (isi laporan diubah)');
     if (!r.fileId) log_(user.username, 'buat laporan', rep.key + ' ' + sk.nama + ' P' + k.no);
     else if (oldStatus !== 'lengkap' && meta.status === 'lengkap') log_(user.username, 'laporan lengkap', sk.nama + ' P' + k.no);
     res = { version: ver, updatedAt: t, updatedBy: user.nama || user.username };
@@ -554,6 +568,7 @@ function deleteReport_(req, user) {
     if (!r) return;
     if (r.folderId) trashFile_(r.folderId, true);
     deleteRow_('Rekap', r._row);
+    batalkanSah_(req.key, Date.now());
   });
   log_(user.username, 'hapus laporan', sk.nama + ' P' + k.no + ' (dipindah ke Sampah Drive)');
   return true;
@@ -641,7 +656,8 @@ function savePdf_(req, user) {
   return { pdfId: id, pdfAt: t };
 }
 
-function getPdf_(req) {
+function getPdf_(req, user) {
+  if (!seesSekolah_(user, parseKey_(req.key).sekolahId)) throw err_('Anda hanya bisa melihat laporan sekolah Anda.', 'FORBIDDEN');
   var r = rekapRow_(String(req.key || ''));
   if (!r || !r.pdfId) throw err_('Arsip PDF belum ada.', 'BAD');
   var b = DriveApp.getFileById(r.pdfId).getBlob();
@@ -671,13 +687,19 @@ function saveUser_(req, user) {
   if (!nama) throw err_('Nama lengkap wajib diisi.');
   var aktif = d.aktif === false ? 'tidak' : 'ya';
   var nip = String(d.nip || '').replace(/[^0-9 ]/g, '').trim().slice(0, 30);
+  var sekolahId = '';
+  if (peran === 'kepsek') {
+    sekolahId = String(d.sekolahId || '');
+    if (!sekolahId) throw err_('Pilih sekolah untuk akun Kepala Sekolah.');
+    sekolahById_(sekolahId);
+  }
   var info = {};
   lock_(function () {
     var ex = findUser_(uname);
     if (mode === 'create') {
       if (ex) throw err_('Username "' + uname + '" sudah dipakai.');
       checkPw_(d.password);
-      insert_('Pengguna', { username: uname, nama: nama, peran: peran, aktif: aktif, dibuat: now_(), nip: nip }, function (o) {
+      insert_('Pengguna', { username: uname, nama: nama, peran: peran, aktif: aktif, dibuat: now_(), nip: nip, sekolahId: sekolahId }, function (o) {
         o.salt = newSalt_(); o.hash = hash_(o.salt, String(d.password));
       });
       log_(user.username, 'tambah pengguna', uname + ' (' + peran + ')');
@@ -696,7 +718,7 @@ function saveUser_(req, user) {
       log_(user.username, 'ganti username', ex.username + ' → ' + baru);
       ex = findUser_(baru);
     }
-    update_('Pengguna', ex._row, { nama: nama, peran: peran, aktif: aktif, nip: nip });
+    update_('Pengguna', ex._row, { nama: nama, peran: peran, aktif: aktif, nip: nip, sekolahId: sekolahId });
     if (aktif !== 'ya') removeUserSessions_(ex.username, '');
     if (d.password) { checkPw_(d.password); setPassword_(findUser_(ex.username), d.password); }
   });
@@ -724,6 +746,10 @@ function renameUser_(lama, baru) {
       sekolahIds.push(sk.id);
       update_('Sekolah', sk._row, { fasil: f.map(function (x) { return x.toLowerCase() === low ? baru : x; }).join('|') });
     }
+  });
+  // pengesahan yang pernah diberikan
+  rows_('Pengesahan').forEach(function (r) {
+    if (r.username.toLowerCase() === low) update_('Pengesahan', r._row, { username: baru });
   });
   // sesi login tetap berlaku dengan username baru
   var cache = CacheService.getScriptCache();
@@ -769,6 +795,95 @@ function resetPassword_(req, user) {
   lock_(function () { setPassword_(u, req.password); removeUserSessions_(u.username, ''); });
   log_(user.username, 'reset sandi', u.username);
   return true;
+}
+
+/* =============================================================
+ * PENGESAHAN ELEKTRONIK (QR)
+ *   Fasilitator 1 & 2 mengesahkan masing-masing, lalu Kepala Sekolah.
+ *   Setiap perubahan isi laporan membatalkan semua pengesahannya.
+ * ============================================================= */
+function sahOut_(r) {
+  return { id: r.id, key: r.key, peran: r.peran, username: r.username, nama: r.nama, nip: r.nip,
+    version: Number(r.version) || 0, waktu: Number(r.waktu) || 0 };
+}
+
+function sahList_(user) {
+  return rows_('Pengesahan').filter(function (r) {
+    return r.aktif === 'ya' && seesSekolah_(user, String(r.key).split('_')[0]);
+  }).map(sahOut_);
+}
+
+function sahAktif_(key) {
+  return rows_('Pengesahan').filter(function (r) { return r.key === key && r.aktif === 'ya'; });
+}
+
+/* Dipanggil di dalam lock_. Mengembalikan jumlah pengesahan yang dibatalkan. */
+function batalkanSah_(key, t) {
+  var a = sahAktif_(key);
+  a.forEach(function (r) { update_('Pengesahan', r._row, { aktif: 'tidak', batalAt: String(t) }); });
+  return a.length;
+}
+
+function sahkan_(req, user) {
+  var k = parseKey_(req.key);
+  var sk = sekolahById_(k.sekolahId);
+  var peran;
+  if (user.peran === 'fasilitator' && inList_(sk, user)) peran = 'fasil';
+  else if (user.peran === 'kepsek' && String(user.sekolahId) === sk.id) peran = 'ks';
+  else throw err_('Anda tidak berhak mengesahkan laporan ini.', 'FORBIDDEN');
+  var out;
+  lock_(function () {
+    var r = rekapRow_(req.key);
+    if (!r || !r.fileId) throw err_('Laporan belum tersimpan di server.', 'BAD');
+    if (Number(req.baseVersion || 0) !== (Number(r.version) || 0)) {
+      throw err_('Laporan sudah diubah oleh ' + (r.updatedBy || 'pengguna lain') + '. Muat ulang laporan, lalu sahkan lagi.', 'CONFLICT',
+        { version: Number(r.version) || 0, updatedBy: r.updatedBy, updatedAt: Number(r.updatedAt) || 0 });
+    }
+    if (r.status !== 'lengkap') throw err_('Lengkapi dulu semua bagian wajib laporan sebelum disahkan.', 'BAD');
+    var aktif = sahAktif_(req.key);
+    var mine = aktif.filter(function (x) { return x.username.toLowerCase() === user.username.toLowerCase(); })[0];
+    if (mine) { out = aktif.map(sahOut_); return; }
+    if (peran === 'ks') {
+      var belum = fasilList_(sk).filter(function (u) {
+        return !aktif.some(function (x) { return x.peran === 'fasil' && x.username.toLowerCase() === u.toLowerCase(); });
+      });
+      if (belum.length) throw err_('Laporan belum disahkan oleh fasilitator: ' + belum.map(function (u) { var x = findUser_(u); return x ? x.nama : u; }).join(', ') + '.', 'BAD');
+    }
+    var id = Utilities.getUuid().replace(/-/g, '').slice(0, 16);
+    insert_('Pengesahan', { id: id, key: req.key, peran: peran, username: user.username, nama: user.nama, nip: user.nip || '',
+      version: r.version, waktu: String(Date.now()), aktif: 'ya', batalAt: '' });
+    log_(user.username, 'sahkan', sk.nama + ' P' + k.no + ' sebagai ' + (peran === 'ks' ? 'kepala sekolah' : 'fasilitator'));
+    out = sahAktif_(req.key).map(sahOut_);
+  });
+  return out;
+}
+
+/* Fasilitator membuka kunci laporan yang sudah disahkan agar bisa diubah. */
+function batalSah_(req, user) {
+  var k = parseKey_(req.key);
+  var sk = sekolahById_(k.sekolahId);
+  if (!canFill_(user, sk)) throw err_('Hanya fasilitator pemegang sekolah yang bisa membuka kunci laporan.', 'FORBIDDEN');
+  var n = 0;
+  lock_(function () { n = batalkanSah_(req.key, Date.now()); });
+  if (n) log_(user.username, 'pengesahan batal', sk.nama + ' P' + k.no + ' (dibuka untuk diubah)');
+  return true;
+}
+
+/* Halaman verifikasi QR (publik): hanya data yang tercetak di lembar pengesahan. */
+function verify_(req) {
+  var id = String(req.id || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 32);
+  var r = id ? rows_('Pengesahan').filter(function (x) { return x.id === id; })[0] : null;
+  if (!r) return { status: 'tidak-ditemukan' };
+  var k = parseKey_(r.key);
+  var sk = rows_('Sekolah').filter(function (s) { return s.id === k.sekolahId; })[0];
+  var rk = rekapRow_(r.key);
+  return {
+    status: r.aktif === 'ya' ? 'sah' : 'batal',
+    peran: r.peran === 'ks' ? 'Kepala Sekolah' : 'Fasilitator',
+    nama: r.nama, nip: r.nip, waktu: Number(r.waktu) || 0, batalAt: Number(r.batalAt) || 0,
+    sekolah: sk ? sk.nama : '', no: k.no, judul: rk ? rk.judul : '', tanggal: rk ? rk.tanggal : '',
+    program: readProgram_().program || 'CERMAT'
+  };
 }
 
 /* =============================================================

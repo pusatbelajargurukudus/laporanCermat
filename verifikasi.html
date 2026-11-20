@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Verifikasi Pengesahan · LAPORAN CERMAT</title>
+  <meta name="robots" content="noindex">
+  <meta name="theme-color" content="#14336b">
+  <link rel="icon" href="icons/favicon-64.png" type="image/png">
+  <style>
+    :root { --navy: #14336b; --gold: #c8962a; --ink: #172036; --muted: #6b7489; --line: #e3e7ef; --ok: #1d8a57; --ok-soft: #e3f5ec; --bad: #c0392b; --bad-soft: #fdecea; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: #f5f6fa; color: var(--ink); }
+    main { max-width: 560px; margin: 0 auto; padding: 28px 18px 40px; }
+    .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+    .brand img { height: 46px; }
+    .brand b { color: var(--navy); letter-spacing: .02em; } .brand i { font-style: normal; color: var(--gold); }
+    .card { background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 22px; box-shadow: 0 1px 2px rgba(16, 24, 40, .05); }
+    .status { display: flex; gap: 14px; align-items: center; padding: 16px; border-radius: 12px; margin-bottom: 18px; }
+    .status .mk { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 800; color: #fff; flex: 0 0 auto; }
+    .status b { display: block; font-size: 1.1rem; }
+    .ok { background: var(--ok-soft); color: var(--ok); } .ok .mk { background: var(--ok); }
+    .bad { background: var(--bad-soft); color: var(--bad); } .bad .mk { background: var(--bad); }
+    .wait { background: #eef0f5; color: var(--muted); } .wait .mk { background: #a3abba; }
+    dl { margin: 0; display: grid; grid-template-columns: 150px 1fr; gap: 8px 12px; }
+    dt { color: var(--muted); font-size: .88rem; } dd { margin: 0; font-weight: 600; }
+    p.note { color: var(--muted); font-size: .82rem; margin: 16px 2px 0; }
+    @media (max-width: 480px) { dl { grid-template-columns: 1fr; gap: 2px; } dd { margin-bottom: 8px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="brand"><img src="icons/logo-mark.png" alt="Logo CERMAT"><div><b>LAPORAN</b> <i>CERMAT</i><div style="font-size:.85rem;color:var(--muted)">Verifikasi pengesahan elektronik</div></div></div>
+    <div class="card" id="out"><div class="status wait"><span class="mk">…</span><div><b>Memeriksa…</b><span>Menghubungi server.</span></div></div></div>
+    <p class="note">Halaman ini menampilkan data pengesahan yang tersimpan di server LAPORAN CERMAT. Cocokkan nama, sekolah, dan pendampingan dengan dokumen yang Anda pegang.</p>
+  </main>
+  <script src="js/config.js"></script>
+  <script>
+    (function () {
+      var out = document.getElementById('out');
+      var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+      var BULAN = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+      var waktu = function (ms) {
+        if (!ms) return '-';
+        return new Date(ms).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }) + ' WIB';
+      };
+      var tanggal = function (iso) { if (!iso) return '-'; var p = String(iso).split('-'); return +p[2] + ' ' + BULAN[+p[1] - 1] + ' ' + p[0]; };
+      var show = function (cls, mk, title, sub, rows) {
+        out.innerHTML = '<div class="status ' + cls + '"><span class="mk">' + mk + '</span><div><b>' + title + '</b><span>' + sub + '</span></div></div>' +
+          (rows ? '<dl>' + rows.map(function (r) { return '<dt>' + r[0] + '</dt><dd>' + esc(r[1]) + '</dd>'; }).join('') + '</dl>' : '');
+      };
+      var id = (new URLSearchParams(location.search).get('id') || '').replace(/[^A-Za-z0-9]/g, '');
+      var api = (window.CERMAT_CONFIG || {}).API_URL;
+      if (!id) return show('bad', '!', 'Kode tidak lengkap', 'Pindai ulang kode QR pada dokumen.');
+      if (!api) return show('bad', '!', 'Server belum diatur', 'Hubungi admin program.');
+      fetch(api, { method: 'POST', body: JSON.stringify({ action: 'verify', id: id }), headers: { 'Content-Type': 'text/plain;charset=utf-8' }, redirect: 'follow' })
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          if (!j.ok) throw new Error(j.error || 'Gagal memeriksa.');
+          var d = j.data;
+          if (d.status === 'tidak-ditemukan') return show('bad', '✕', 'Pengesahan tidak ditemukan', 'Kode QR ini tidak terdaftar. Dokumen tidak dapat dipastikan keasliannya.');
+          var rows = [
+            ['Dokumen', 'Laporan Pendampingan ' + d.no + (d.judul ? ': ' + d.judul : '')],
+            ['Program', d.program],
+            ['Sekolah sasaran', d.sekolah],
+            ['Tanggal pelaksanaan', tanggal(d.tanggal)],
+            ['Disahkan oleh', d.nama + (d.nip ? ' (NIP ' + d.nip + ')' : '')],
+            ['Sebagai', d.peran],
+            ['Waktu pengesahan', waktu(d.waktu)]
+          ];
+          if (d.status === 'sah') show('ok', '✓', 'Pengesahan sah', 'Dokumen ini disahkan secara elektronik melalui LAPORAN CERMAT.', rows);
+          else show('bad', '!', 'Pengesahan sudah dibatalkan', 'Isi laporan diubah setelah disahkan' + (d.batalAt ? ' (' + waktu(d.batalAt) + ')' : '') + '. Minta dokumen versi terbaru yang sudah disahkan ulang.', rows);
+        })
+        .catch(function (e) { show('bad', '!', 'Tidak bisa memeriksa', esc(e.message || 'Periksa koneksi internet, lalu muat ulang halaman.')); });
+    })();
+  </script>
+</body>
+</html>
