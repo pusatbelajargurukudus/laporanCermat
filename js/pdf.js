@@ -380,6 +380,20 @@
     w.h2('b', 'Rekomendasi Fasilitator');
     w.para(rep.rekomendasi || '-', { x: IND + 16, first: 0 });
 
+    w.h1(++n, 'Reward Peserta');
+    const rwKini = R.rewardHadir(rep), rwSebelum = settings.rewardSebelum || {};
+    const rwList = R.sortPeserta(R.hadirList(rep, school));
+    const rwSum = rwList.reduce((a, p) => a + (rwKini[p.id] || 0), 0);
+    w.para('Pada pendampingan ' + rep.no + ' ini, ' + rwList.length + ' peserta yang hadir memperoleh total ' + rwSum +
+      ' bintang. Kolom total menunjukkan akumulasi bintang setiap peserta sejak pendampingan 1 sampai pendampingan ' + rep.no + '.', { first: 28 });
+    if (rwList.length) {
+      const jab = p => R.jabatanLabel(p) || '-';
+      const rows = rwList.map((p, i) => [i + 1, p.nama, jab(p), rwKini[p.id] === undefined ? '-' : rwKini[p.id], (rwSebelum[p.id] || 0) + (rwKini[p.id] || 0)]);
+      rows.push(['', 'Jumlah', '', rwSum, rwList.reduce((a, p) => a + (rwSebelum[p.id] || 0) + (rwKini[p.id] || 0), 0)]);
+      w.table([{ t: 'No', w: 0.07, align: 'center' }, { t: 'Nama', w: 0.39 }, { t: 'Jabatan/Kelas', w: 0.2 },
+        { t: 'Bintang P' + rep.no, w: 0.15, align: 'center' }, { t: 'Total s.d. P' + rep.no, w: 0.19, align: 'center' }], rows, { boldLastRow: true });
+    }
+
     w.h1(++n, 'Penutup');
     w.para(R.penutup(settings), { first: 28 });
 

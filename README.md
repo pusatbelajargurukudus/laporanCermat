@@ -1,10 +1,11 @@
-# LAPORAN CERMAT v2.3
+# LAPORAN CERMAT v2.4
 
 Aplikasi web untuk menyusun **laporan 22 pendampingan Program CERMAT** (Cerdas Numerasi dan Matematika Terapan), dipakai bersama oleh semua fasilitator.
 
 - **Data bersama di Google Drive** akun admin, dengan Google Apps Script sebagai server. Gratis.
 - **Akun masing-masing dengan peran:** Admin, Fasilitator, dan Pemantau (hanya melihat dan mengunduh).
 - **Data sekolah dibagi.** Admin mendaftarkan sekolah dan memasangkan Fasilitator 1 & 2; fasilitator melengkapi nama & NIP kepala sekolah serta data guru.
+- **Reward bintang.** Fasilitator mengisi bintang setiap peserta yang hadir di langkah *Reward*; totalnya terakumulasi dari P1–P22, tercetak di PDF, dan bisa dipantau di menu *Total Reward*.
 - **Jurnal kegiatan ditandatangani** kepala sekolah dan fasilitator yang hadir.
 - **Isi laporan otomatis** dari *Silabus Pendampingan CERMAT (revisi 15-11-2026)*.
 - **Nilai pretes/postes** diimpor dari Google Form; hanya baris sekolah yang dilaporkan yang diambil.
@@ -20,15 +21,17 @@ Aplikasi web untuk menyusun **laporan 22 pendampingan Program CERMAT** (Cerdas N
 | Kelola Pengguna | Data Sekolah | Data Sekolah |
 | Data Sekolah | Buat Laporan | Lihat Laporan |
 | Lihat Laporan (pemantauan, hanya baca) | Unduh Laporan | Unduh Laporan |
-| Unduh Laporan | | |
+| Unduh Laporan | Total Reward (sekolah binaan) | Total Reward |
+| Total Reward | | |
 
 Langkah form laporan:
 1. Pelaksanaan (fasil hadir, tanggal DD/MM/YYYY, jam, tempat)
 2. Pretes & Kehadiran
 3. Postes & Capaian (P17–19: Observasi & Capaian)
 4. Evaluasi
-5. Lampiran
-6. Periksa & Unduh
+5. Reward (bintang untuk peserta yang hadir; hanya fasilitator pemegang sekolah yang bisa mengisi)
+6. Lampiran
+7. Periksa & Unduh
 
 Langkah pelaksanaan kegiatan selalu persis sesuai silabus.
 

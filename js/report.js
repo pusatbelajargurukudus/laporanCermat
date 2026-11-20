@@ -33,7 +33,7 @@
       tanggal: '', jamMulai: '08.00', jamSelesai: '11.00', tempat: '',
       hadir: [], tes: null, capaian: {}, kegiatan: null,
       teks: { latar: '', kondisiAwal: '', kondisiAkhir: '' },
-      permasalahan: '', rekomendasi: '', observasi: [],
+      permasalahan: '', rekomendasi: '', observasi: [], reward: {},
       lampiran: { hadirAuto: true, jurnalAuto: true, hadirScan: [], jurnalScan: [], portofolio: {}, foto: [] }
     };
   };
@@ -188,6 +188,27 @@
   R.penutup = (settings) => 'Laporan pelaksanaan pendampingan ini diharapkan menjadi bahan informasi untuk evaluasi dan kontrol pelaksanaan pendampingan Program ' +
     (settings.program || 'CERMAT') + '. Informasi yang didapatkan merupakan bahan tindak lanjut bagi pemangku kebijakan, penyelenggara, serta pihak-pihak lain untuk tercapainya tujuan dari program.';
 
+  /* ---------- Reward (bintang) ---------- */
+  /* Bintang per peserta pada laporan ini: hanya peserta yang dicentang hadir, angka bulat >= 0. */
+  R.rewardHadir = function (rep) {
+    const out = {};
+    const src = (rep && rep.reward) || {};
+    (rep.hadir || []).forEach(id => {
+      const v = src[id];
+      if (v === '' || v === null || v === undefined) return;
+      const n = Math.floor(Number(v));
+      if (isFinite(n) && n >= 0) out[id] = n;
+    });
+    return out;
+  };
+  /* Lengkap bila setiap peserta hadir sudah diberi angka bintang (0 juga dihitung). */
+  R.rewardLengkap = function (rep, school) {
+    const h = R.hadirList(rep, school);
+    if (!h.length) return false;
+    const r = R.rewardHadir(rep);
+    return h.every(p => r[p.id] !== undefined);
+  };
+
   /* ---------- Daftar periksa ---------- */
   R.checklist = function (rep, school) {
     const L = rep.lampiran;
@@ -206,11 +227,12 @@
     if (R.isObservasi(rep.no)) add('Hasil observasi & coaching (minimal 1 guru)', (rep.observasi || []).some(o => (o.guru || '').trim()), true, 3);
     add('Permasalahan yang ditemui', (rep.permasalahan || '').trim(), true, 4);
     add('Rekomendasi fasilitator', (rep.rekomendasi || '').trim(), true, 4);
-    add('Foto dokumentasi (minimal 1)', (L.foto || []).length > 0, true, 5);
-    if (!L.hadirAuto) add('Scan daftar hadir', (L.hadirScan || []).length > 0, true, 5);
-    if (!L.jurnalAuto) add('Scan jurnal kegiatan', (L.jurnalScan || []).length > 0, true, 5);
+    add('Bintang reward untuk semua peserta hadir', R.rewardLengkap(rep, school), true, 5);
+    add('Foto dokumentasi (minimal 1)', (L.foto || []).length > 0, true, 6);
+    if (!L.hadirAuto) add('Scan daftar hadir', (L.hadirScan || []).length > 0, true, 6);
+    if (!L.jurnalAuto) add('Scan jurnal kegiatan', (L.jurnalScan || []).length > 0, true, 6);
     const porto = Object.values(L.portofolio || {}).reduce((s, a) => s + a.length, 0);
-    add('Portofolio tugas (opsional)', porto > 0, false, 5);
+    add('Portofolio tugas (opsional)', porto > 0, false, 6);
     return c;
   };
 

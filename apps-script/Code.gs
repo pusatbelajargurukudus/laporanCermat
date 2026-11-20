@@ -12,8 +12,8 @@
  *   3. Deploy > New deployment > Web app (Execute as: Me, Who has access: Anyone)
  */
 
-var APP_VERSION = '2.3.0';
-var SCHEMA = '2.1';
+var APP_VERSION = '2.4.0';
+var SCHEMA = '2.2';
 var SESSION_DAYS = 30;
 var MAX_FAIL = 5;          // salah sandi berturut-turut
 var LOCK_SECONDS = 600;    // lama kunci setelah salah sandi (detik)
@@ -27,7 +27,7 @@ var SHEETS = {
   Peserta: ['id', 'sekolahId', 'nama', 'jabatan', 'kelas'],
   Program: ['kunci', 'nilai'],
   Rekap: ['key', 'sekolahId', 'sekolah', 'no', 'judul', 'status', 'tanggal', 'rataPre', 'rataPost',
-    'fileId', 'folderId', 'pdfId', 'pdfAt', 'updatedAt', 'updatedBy', 'version'],
+    'fileId', 'folderId', 'pdfId', 'pdfAt', 'updatedAt', 'updatedBy', 'version', 'reward'],
   Berkas: ['fileId', 'key', 'jenis', 'dibuat'],
   Sesi: ['tokenHash', 'username', 'expires'],
   Log: ['waktu', 'username', 'aksi', 'detail']
@@ -307,8 +307,27 @@ function rekapList_() {
   return rows_('Rekap').map(function (r) {
     return { key: r.key, sekolahId: r.sekolahId, no: Number(r.no), status: r.status, tanggal: r.tanggal,
       rataPre: r.rataPre, rataPost: r.rataPost, pdfId: r.pdfId, pdfAt: Number(r.pdfAt) || 0,
-      updatedAt: Number(r.updatedAt) || 0, updatedBy: r.updatedBy, version: Number(r.version) || 0 };
+      updatedAt: Number(r.updatedAt) || 0, updatedBy: r.updatedBy, version: Number(r.version) || 0,
+      reward: parseReward_(r.reward) };
   });
+}
+
+/* Reward (bintang) per peserta pada satu laporan: hanya peserta yang dicentang hadir, angka bulat >= 0. */
+function rewardHadir_(rep) {
+  var out = {};
+  var src = rep && rep.reward && typeof rep.reward === 'object' ? rep.reward : {};
+  (Array.isArray(rep && rep.hadir) ? rep.hadir : []).forEach(function (id) {
+    var v = src[id];
+    if (v === '' || v === null || v === undefined) return;
+    var n = Math.floor(Number(v));
+    if (isFinite(n) && n >= 0) out[String(id)] = n;
+  });
+  return out;
+}
+
+function parseReward_(s) {
+  if (!s) return {};
+  try { var o = JSON.parse(s); return o && typeof o === 'object' ? o : {}; } catch (x) { return {}; }
 }
 
 function readProgram_() {
@@ -516,7 +535,8 @@ function saveReport_(req, user) {
       sekolah: sk.nama, judul: meta.judul || r.judul, status: meta.status === 'lengkap' ? 'lengkap' : 'draf',
       tanggal: String(meta.tanggal || ''), rataPre: meta.rataPre === null || meta.rataPre === undefined ? '' : String(meta.rataPre),
       rataPost: meta.rataPost === null || meta.rataPost === undefined ? '' : String(meta.rataPost),
-      fileId: fileId, updatedAt: String(t), updatedBy: user.nama || user.username, version: String(ver)
+      fileId: fileId, updatedAt: String(t), updatedBy: user.nama || user.username, version: String(ver),
+      reward: JSON.stringify(rewardHadir_(rep))
     });
     if (!r.fileId) log_(user.username, 'buat laporan', rep.key + ' ' + sk.nama + ' P' + k.no);
     else if (oldStatus !== 'lengkap' && meta.status === 'lengkap') log_(user.username, 'laporan lengkap', sk.nama + ' P' + k.no);
