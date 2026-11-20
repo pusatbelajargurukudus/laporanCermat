@@ -1,4 +1,4 @@
-# Panduan Pemasangan LAPORAN CERMAT v2.8
+# Panduan Pemasangan LAPORAN CERMAT v3.0
 
 Aplikasi terdiri dari dua bagian:
 
@@ -98,6 +98,8 @@ Pemasangan cukup **sekali**, sekitar 15 menit.
 4. Buka aplikasi dan tekan **Ctrl+Shift+R** sekali.
 
 Data lama tetap aman. Kolom baru di Sheets ditambahkan otomatis.
+
+**Catatan v3.0 (Tampilan baru & Unduh daftar akun):** `Code.gs` tidak berubah, tidak perlu deploy ulang Apps Script. Unggah folder `fonts/` baru beserta file yang berubah. Di Kelola Pengguna ada tombol **Unduh daftar akun** (PDF per jenis akun, berkop).
 
 **Catatan v2.8 (Login di portal & peran Guru):** `Code.gs` **berubah** — tempel ulang lalu Deploy → New version **sebelum** mengunggah file ke GitHub. Buat akun Guru (satu per sekolah) di Kelola Pengguna.
 

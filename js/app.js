@@ -1,4 +1,4 @@
-/* LAPORAN CERMAT v2.9 — antarmuka (multi-pengguna, data di Google Drive lewat Apps Script). */
+/* LAPORAN CERMAT v3.0 — antarmuka (multi-pengguna, data di Google Drive lewat Apps Script). */
 (function () {
   const R = window.Report, I = window.Importer;
   const app = document.getElementById('app');
@@ -1729,7 +1729,7 @@
    * ========================================================= */
   const skOfUser = u => S.sekolah.filter(s => inFasil(s, u.username)).map(s => s.nama);
   async function renderPengguna() {
-    const head = pageHead('Kelola Pengguna', 'Akun admin, fasilitator, kepala sekolah, guru, dan pemantau.', `<button class="btn pri" data-act="user-new">${ic('plus')}Tambah pengguna</button>`);
+    const head = pageHead('Kelola Pengguna', 'Akun admin, fasilitator, kepala sekolah, guru, dan pemantau.', `<button class="btn" data-act="user-pdf">${ic('download')}Unduh daftar akun</button><button class="btn pri" data-act="user-new">${ic('plus')}Tambah pengguna</button>`);
     app.innerHTML = head + '<div class="loading"><span class="spin"></span> Memuat…</div>';
     let users;
     const usageP = API.call('usage').catch(() => null);   // kapasitas Drive dimuat bersamaan, tidak menahan daftar pengguna
@@ -1770,6 +1770,84 @@
     const pct = Math.round(usage.used / usage.limit * 1000) / 10;
     box.outerHTML = `<div class="card"><div class="card-h">${ic('cloud')}<h3>Penyimpanan Google Drive admin</h3></div><div class="bar big"><i style="width:${Math.min(100, pct)}%"></i></div>
           <p class="small" style="margin:10px 0 0">${(usage.used / 1073741824).toFixed(2)} GB dari ${(usage.limit / 1073741824).toFixed(0)} GB terpakai (${pct}%) — termasuk Gmail & Google Photos akun admin.</p></div>`;
+  }
+
+  /* ---------- Unduh daftar akun (PDF): satu jenis akun = satu bagian berkop, mulai di halaman baru ---------- */
+  const AKUN_URUT = ['admin', 'fasilitator', 'kepsek', 'guru', 'pemantau'];
+  function sekolahAkun(u) {
+    if (u.peran === 'kepsek' || u.peran === 'guru') { const x = school(u.sekolahId); return x ? x.nama : ''; }
+    if (u.peran === 'fasilitator') return skOfUser(u).join(', ');
+    return '';
+  }
+  function openAkunPdf() {
+    const users = S.users || [];
+    const cnt = (p, akt) => users.filter(u => u.peran === p && (!akt || u.aktif)).length;
+    const bg = document.createElement('div');
+    bg.className = 'modal-bg';
+    bg.innerHTML = `<div class="modal" style="width:min(520px,100%)"><div class="mh"><b>Unduh daftar akun (PDF)</b><span class="spacer"></span><button class="iconbtn" data-ap="close" title="Tutup">${ic('x')}</button></div>
+      <div class="mb" style="padding:20px 22px;overflow:auto">
+        <label class="f">Jenis akun</label>
+        <div class="aplist">
+          <label class="apall"><input type="checkbox" id="ap-all" checked> <b>Pilih semua</b></label>
+          ${AKUN_URUT.map(p => `<label><input type="checkbox" data-ap-peran="${p}" checked> <span>${PERAN[p]}</span><span class="tiny muted" data-ap-n="${p}"></span></label>`).join('')}
+        </div>
+        <label class="row small" style="margin-top:14px;gap:10px"><input type="checkbox" id="ap-aktif" checked> Hanya akun aktif</label>
+        <div style="margin-top:14px"><label class="f" for="ap-pw">Password awal yang dicetak</label><input type="text" id="ap-pw" value="cermatPBG" autocomplete="off">
+          <div class="tiny muted" style="margin-top:4px">Password tersimpan teracak di server dan tidak bisa dibaca. Yang tercetak hanya keterangan password awal ini; akun yang passwordnya sudah diganti pemiliknya tidak terpengaruh.</div></div>
+        <div class="banner warn small" style="margin:16px 0 0">${ic('alert')}<div>Daftar ini rahasia. Bagikan per orang atau per sekolah, jangan ke grup WhatsApp besar.</div></div>
+        <div class="row" style="margin-top:18px"><button class="btn pri" data-ap="go">${ic('download')}Unduh PDF</button><span class="tiny muted" id="ap-info"></span></div>
+      </div></div>`;
+    document.body.appendChild(bg);
+    const q = sel => bg.querySelector(sel);
+    const picks = () => [...bg.querySelectorAll('[data-ap-peran]')].filter(x => x.checked).map(x => x.dataset.apPeran);
+    const upd = () => {
+      const akt = q('#ap-aktif').checked;
+      AKUN_URUT.forEach(p => { q(`[data-ap-n="${p}"]`).textContent = cnt(p, akt) + ' akun'; });
+      const ps = picks(); q('#ap-all').checked = ps.length === AKUN_URUT.length; q('#ap-all').indeterminate = ps.length > 0 && ps.length < AKUN_URUT.length;
+      q('[data-ap="go"]').disabled = !ps.length;
+      q('#ap-info').textContent = ps.length ? ps.length + ' jenis akun · ' + ps.reduce((a, p) => a + cnt(p, akt), 0) + ' akun' : 'Pilih minimal satu jenis akun';
+    };
+    const close = () => bg.remove();
+    bg.addEventListener('change', e => {
+      if (e.target.id === 'ap-all') bg.querySelectorAll('[data-ap-peran]').forEach(x => { x.checked = e.target.checked; });
+      upd();
+    });
+    bg.addEventListener('click', async e => {
+      if (e.target === bg || e.target.closest('[data-ap="close"]')) return close();
+      const go = e.target.closest('[data-ap="go"]'); if (!go) return;
+      const pw = q('#ap-pw').value.trim(), akt = q('#ap-aktif').checked, ps = picks();
+      if (!pw) { toast('Isi password awal yang akan dicetak.', true); q('#ap-pw').focus(); return; }
+      go.disabled = true; go.innerHTML = '<span class="spin"></span> Menyusun PDF…';
+      try { await akunPdf(ps, akt, pw); close(); toast('Daftar akun diunduh.'); }
+      catch (er) { toast('Gagal membuat PDF: ' + er.message, true, 6000); go.disabled = false; go.innerHTML = ic('download') + 'Unduh PDF'; }
+    });
+    upd();
+  }
+  async function akunPdf(peranList, aktifSaja, pw) {
+    const users = S.users || [];
+    const portal = new URL(PORTAL, location.href).href;
+    const now = new Date();
+    const groups = peranList.map(p => {
+      const rows = users.filter(u => u.peran === p && (!aktifSaja || u.aktif))
+        .sort((a, b) => (sekolahAkun(a) || '').localeCompare(sekolahAkun(b) || '', 'id') || a.nama.localeCompare(b.nama, 'id'))
+        .map(u => ({ nama: u.nama, username: u.username, sekolah: sekolahAkun(u) || '-', nip: u.nip || '-', status: u.aktif ? 'Aktif' : 'Nonaktif',
+          login: u.terakhirLogin ? fmtWaktu(Date.parse(u.terakhirLogin)) : 'Belum pernah' }));
+      const note = p === 'guru'
+        ? ['Password awal: ' + pw, 'Masuk di ' + portal + ' dengan username sekolah di bawah. Akun guru dipakai bersama oleh semua guru di sekolah tersebut; passwordnya hanya bisa diganti admin.']
+        : ['Password awal: ' + pw, 'Masuk di ' + portal + '. Segera ganti password setelah login pertama: ketuk nama Anda di kanan atas Pustaka CERMAT, lalu Ganti password.'];
+      return { label: PERAN[p], note, rows };
+    });
+    await ensureKop();
+    let logo = null;
+    try { logo = new Uint8Array(await (await fetch('icons/logo-mark.png')).arrayBuffer()); } catch (e) { logo = null; }
+    const bytes = await window.PdfGen.accounts(groups, {
+      kop: S.kopData, logo, penyelenggara: S.program.penyelenggara || 'Pusat Belajar Guru Kudus',
+      printed: now.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }),
+      title: 'Daftar Akun CERMAT'
+    });
+    const ymd = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+    const nm = peranList.length === 1 ? PERAN[peranList[0]].replace(/\s+/g, '_') : (peranList.length === AKUN_URUT.length ? 'Semua' : peranList.map(p => PERAN[p].split(' ')[0]).join('_'));
+    saveBlob(new Blob([bytes], { type: 'application/pdf' }), 'Daftar_Akun_' + nm + '_' + ymd + '.pdf');
   }
 
   function openUserModal(uname) {
@@ -2102,6 +2180,7 @@
       }
       /* ---- pengguna ---- */
       case 'user-new': openUserModal(null); break;
+      case 'user-pdf': openAkunPdf(); break;
       case 'user-edit': openUserModal(b.dataset.u); break;
       case 'user-save': {
         const tr = b.closest('tr');

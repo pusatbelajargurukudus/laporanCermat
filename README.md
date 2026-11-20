@@ -1,4 +1,4 @@
-# LAPORAN CERMAT v2.8
+# LAPORAN CERMAT v3.0
 
 Aplikasi web untuk menyusun **laporan 22 pendampingan Program CERMAT** (Cerdas Numerasi dan Matematika Terapan), dipakai bersama oleh semua fasilitator.
 
@@ -64,6 +64,7 @@ js/pdf.js           penyusun PDF A4
 js/app.js           antarmuka
 vendor/             pdf-lib 1.17.1, JSZip 3.10.1 & qrcode-generator 1.4.4 (MIT); pdfjs/ = PDF.js 4.10.38 (Apache 2.0)
 verifikasi.html     halaman verifikasi kode QR pengesahan
+fonts/              Plus Jakarta Sans & Cormorant Garamond (SIL OFL 1.1), dipasang lokal agar bisa offline
 apps-script/Code.gs server (ditempel di Google Apps Script)
 ```
 

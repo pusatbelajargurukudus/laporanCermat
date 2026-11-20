@@ -1,5 +1,6 @@
 /* LAPORAN CERMAT — tampilan
- * Warna diambil dari logo CERMAT: biru tua & emas. */
+ * Warna diambil dari logo CERMAT: biru tua & emas.
+ * v3.0: kepala halaman biru tua bergaris emas, judul serif, kartu putih membulat (lihat blok terakhir). */
 :root {
   --navy: #14336b; --navy-2: #1e4590; --navy-ink: #0e2550; --navy-soft: #e9eef8; --navy-line: #c9d5ec;
   --gold: #c8962a; --gold-2: #b07f17; --gold-soft: #fbf3e0;
@@ -30,9 +31,6 @@ code { background: var(--navy-soft); padding: 1px 6px; border-radius: 6px; font-
 .topbar .in { max-width: 1200px; margin: 0 auto; display: flex; align-items: center; gap: 22px; padding: 0 20px; height: 64px; }
 .brand { display: flex; align-items: center; gap: 10px; color: var(--navy-ink); text-decoration: none !important; white-space: nowrap; }
 .brand img { height: 38px; width: auto; display: block; }
-.brand span { font-size: 1.02rem; letter-spacing: .02em; color: var(--navy); }
-.brand span b { font-weight: 800; }
-.brand span i { font-style: normal; font-weight: 500; color: var(--gold-2); }
 .nav { display: flex; gap: 4px; height: 100%; }
 .nav a { display: flex; align-items: center; gap: 8px; padding: 0 14px; color: var(--muted); font-weight: 600; font-size: .93rem; text-decoration: none; border-bottom: 3px solid transparent; margin-bottom: -1px; }
 .nav a:hover { color: var(--navy); }
@@ -390,7 +388,7 @@ table.rwm tr.sum td.sk { background: #f8f9fc; }
 @media (max-width: 1320px) { .nav a { padding: 0 10px; font-size: .88rem; gap: 6px; } .topbar .in { gap: 14px; } }
 @media (max-width: 1140px) { .nav a { padding: 0 9px; font-size: .86rem; } }
 @media (max-width: 1220px) and (min-width: 721px) { .nav a .ic { display: none; } }
-@media (max-width: 880px) and (min-width: 721px) { .brand span { display: none; } .nav a { padding: 0 7px; } }
+@media (max-width: 880px) and (min-width: 721px) { .brand .wm { display: none; } .nav a { padding: 0 7px; } }
 @media (max-width: 720px) {
   .rw { grid-template-columns: 1fr auto; row-gap: 6px; }
   .rw-h span:last-child { display: none; }
@@ -441,3 +439,95 @@ a.pick .pno { flex: 0 0 auto; width: 52px; height: 52px; border-radius: 12px; ba
 .pwf .eyebtn { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 36px; height: 36px; border: 0; background: none; border-radius: 8px; color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
 .pwf .eyebtn:hover { background: var(--navy-soft); color: var(--navy); }
 .pwf .eyebtn .ic { position: static; transform: none; }
+
+/* =========================================================
+ * v3.0 — tampilan baru (selaras Pustaka Digital CERMAT)
+ * ========================================================= */
+:root {
+  --navy: #14336b; --navy-ink: #0e2550; --top: #0E2550; --gold-l: #D9B866; --gold-t: #F3DFA8;
+  --bg: #f3f5f9;
+  --r: 16px;
+  --sh: 0 1px 2px rgba(16, 24, 40, .06), 0 6px 16px rgba(16, 24, 40, .05);
+  --serif: "Cormorant Garamond", Georgia, "Times New Roman", serif;
+}
+
+/* bilah atas biru tua */
+.topbar { background: var(--top); backdrop-filter: none; border-bottom: 2px solid var(--gold-l); }
+.topbar::after { content: none; }
+.topbar .in { height: 72px; max-width: 1200px; }
+.topbar .portal { color: var(--gold-l); width: 38px; height: 38px; border-radius: 10px; margin-right: -10px; }
+.topbar .portal:hover { background: rgba(255, 255, 255, .08); color: var(--gold-t); }
+.brand { gap: 10px; color: #fff; }
+.brand .mark { flex: none; width: 40px; height: 40px; border-radius: 50%; background: #fff; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 1px var(--gold-l); }
+.brand .mark img { height: 26px; width: auto; }
+.brand .wm { font-family: var(--serif); font-size: 23px; font-weight: 600; color: #fff; letter-spacing: .02em; line-height: 1; }
+.brand .wm i { font-style: italic; color: var(--gold-l); }
+.nav { align-items: center; }
+.nav a { height: 40px; border-radius: 10px; border-bottom: 0; margin-bottom: 0; color: #C7CFE2; }
+.nav a:hover { color: #fff; background: rgba(255, 255, 255, .06); text-decoration: none; }
+.nav a.on { color: var(--gold-t); background: rgba(217, 184, 102, .16); font-weight: 700; }
+.nav a.on .ic { color: var(--gold-l); }
+
+/* profil di kanan */
+.topbar .avatar { height: 44px; padding: 0 6px 0 14px; border: 1px solid rgba(217, 184, 102, .6); color: #fff; }
+.topbar .avatar:hover { background: rgba(255, 255, 255, .06); }
+.topbar .avatar .nm b { color: #fff; font-size: 13px; }
+.topbar .avatar .nm span { color: var(--gold-l); font-size: 11px; }
+.topbar .avatar .bubble { width: 32px; height: 32px; background: var(--gold-l); color: var(--top); font-weight: 800; font-size: 12px; }
+.topbar .avatar .bubble .sd { border-color: var(--top); }
+.menu { border-top: 3px solid var(--gold-l); }
+
+/* judul halaman serif */
+.ph h1, .ed-head h1 { font-family: var(--serif); font-weight: 600; color: var(--top); letter-spacing: 0; }
+.ph h1 { font-size: 2rem; line-height: 1.1; }
+.ed-head h1 { font-size: 1.75rem; line-height: 1.15; }
+
+/* kartu putih membulat */
+.card, .stat, a.pick, .pcard, .stepper, .matrix-wrap { border-color: transparent; box-shadow: var(--sh); }
+.card { border-radius: 18px; }
+.stat { border-radius: 16px; padding: 16px 20px; }
+a.pick { border-radius: 16px; }
+a.pick:hover, a.pcard:hover { border-color: var(--gold-l); }
+.skc.mine { border-left: 0; box-shadow: inset 4px 0 0 var(--gold-l), var(--sh); }
+.btn.pri { background: var(--top); border-color: var(--top); }
+.btn.pri:hover { background: var(--navy); }
+
+/* fase & kartu pendampingan */
+.phase { align-items: center; }
+.phase b { font-size: .74rem; font-weight: 800; letter-spacing: .06em; padding: 6px 12px; border-radius: 999px; }
+.phase.f1 b, .phase.f2 b, .phase.f3 b { background: var(--top); color: var(--gold-t); }
+.phase span { font-size: 1.02rem; color: var(--navy); }
+.pcards { gap: 16px; }
+.pcard { border-radius: 16px; padding: 16px; gap: 14px; }
+.pcard::before { content: none; }
+.pcard .no { width: 40px; height: 40px; border-radius: 12px; }
+.pcard.draf .no, .pcard.tunggu .no, .pcard.lengkap .no { background: var(--navy); color: #fff; }
+.pcard .tt { font-weight: 700; font-size: .92rem; }
+.pcard.off { background: #f8f9fc; box-shadow: none; border: 1px dashed var(--line-2); }
+
+/* login */
+.auth-side { background: radial-gradient(1000px 520px at -10% 110%, rgba(217, 184, 102, .22), transparent 60%), var(--top); }
+.auth-side .logo-card { box-shadow: 0 0 0 1px var(--gold-l), 0 20px 50px rgba(0, 0, 0, .3); }
+.auth-side h2 { font-family: var(--serif); font-weight: 600; font-size: 2.3rem; letter-spacing: 0; line-height: 1.1; }
+.auth-side .motto { font-family: var(--serif); font-size: 1.3rem; color: var(--gold-t); }
+.auth-form h1 { font-family: var(--serif); font-weight: 600; font-size: 2.2rem; color: var(--top); }
+
+/* bilah bawah (HP) */
+@media (max-width: 720px) {
+  .topbar .in { height: 60px; gap: 12px; }
+  .brand .mark { width: 34px; height: 34px; }
+  .brand .mark img { height: 22px; }
+  .brand .wm { font-size: 20px; }
+  .topbar .avatar { height: 40px; padding: 0 4px; border: 0; }
+  .tabbar { border-top: 2px solid var(--gold-l); }
+  .tabbar a.on { color: var(--top); }
+  .ph h1 { font-size: 1.65rem; }
+}
+
+/* Unduh daftar akun */
+.aplist { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.aplist label { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); cursor: pointer; font-size: .92rem; }
+.aplist label:last-child { border-bottom: 0; }
+.aplist label > span:first-of-type { flex: 1; }
+.aplist .apall { background: #f8f9fc; }
+.aplist label:hover { background: var(--navy-soft); }

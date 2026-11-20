@@ -621,5 +621,115 @@
     return doc.save();
   }
 
-  window.PdfGen = { generate };
+
+  /* ---------- Daftar akun (Kelola Pengguna → Unduh daftar akun) ----------
+   * groups: [{ label, note, rows: [{ nama, username, sekolah, nip, status, login }] }]
+   * Satu jenis akun dimulai di halaman baru, masing-masing dengan kop. A4 mendatar. */
+  async function accounts(groups, o) {
+    const PW = 841.89, PH = 595.28, M = 36, TW = PW - 2 * M;
+    const NAVY = rgb(0.055, 0.145, 0.314), GOLDL = rgb(0.851, 0.722, 0.4), ZEBRA = rgb(0.957, 0.965, 0.98), SOFT = rgb(0.984, 0.953, 0.878);
+    const doc = await PDFDocument.create();
+    const reg = await doc.embedFont(StandardFonts.Helvetica), bold = await doc.embedFont(StandardFonts.HelveticaBold), ital = await doc.embedFont(StandardFonts.HelveticaOblique);
+    const cs = new Set(reg.getCharacterSet());
+    const clean = t => { let out = ''; for (const ch of String(t == null ? '' : t)) { if (REPL[ch] !== undefined && !cs.has(ch.codePointAt(0))) out += REPL[ch]; else out += cs.has(ch.codePointAt(0)) ? ch : '?'; } return out; };
+    const wrap = (t, font, size, maxW) => {
+      const words = clean(t).split(/\s+/).filter(Boolean), lines = []; let cur = '';
+      for (let w of words) {
+        while (font.widthOfTextAtSize(w, size) > maxW && w.length > 1) {   // kata sangat panjang
+          let i = w.length - 1; while (i > 1 && font.widthOfTextAtSize(w.slice(0, i), size) > maxW) i--;
+          if (cur) { lines.push(cur); cur = ''; }
+          lines.push(w.slice(0, i)); w = w.slice(i);
+        }
+        const nx = cur ? cur + ' ' + w : w;
+        if (font.widthOfTextAtSize(nx, size) > maxW && cur) { lines.push(cur); cur = w; } else cur = nx;
+      }
+      if (cur) lines.push(cur);
+      return lines.length ? lines : [''];
+    };
+    doc.setTitle(o.title || 'Daftar Akun CERMAT'); doc.setCreator('LAPORAN CERMAT'); doc.setProducer('LAPORAN CERMAT (pdf-lib)'); doc.setLanguage('id-ID');
+    let kop = null, logo = null;
+    if (o.kop) { try { kop = await (/^data:image\/png/.test(o.kop) ? doc.embedPng(dataUrlBytes(o.kop)) : doc.embedJpg(dataUrlBytes(o.kop))); } catch (e) { kop = null; } }
+    if (!kop && o.logo) { try { logo = await doc.embedPng(o.logo); } catch (e) { logo = null; } }
+    const cols = [
+      { t: 'No', w: 30, k: 'no', a: 'c' }, { t: 'Nama lengkap', w: 196, k: 'nama' }, { t: 'Username', w: 112, k: 'username' },
+      { t: 'Sekolah', w: 176, k: 'sekolah' }, { t: 'NIP', w: 120, k: 'nip' }, { t: 'Status', w: 60, k: 'status', a: 'c' }, { t: 'Terakhir login', w: 0, k: 'login' }
+    ];
+    cols[cols.length - 1].w = TW - cols.reduce((a, c) => a + c.w, 0);
+    const FS = 9, LH = 11.5, PADX = 6, PADY = 5;
+    const pages = [];
+    const T = (pg, txt, x, y, size, font, color) => pg.drawText(clean(txt), { x, y, size, font, color: color || INK });
+
+    function header(pg, g, cont) {
+      let y = PH - M;
+      if (kop) {
+        const sc = Math.min(TW / kop.width, 62 / kop.height), w = kop.width * sc, h = kop.height * sc;
+        pg.drawImage(kop, { x: (PW - w) / 2, y: y - h, width: w, height: h }); y -= h + 8;
+      } else {
+        const lh = 46;
+        if (logo) { const sc = lh / logo.height; pg.drawImage(logo, { x: M, y: y - lh, width: logo.width * sc, height: lh }); }
+        const tx = M + (logo ? logo.width * (lh / logo.height) + 12 : 0);
+        T(pg, 'PROGRAM CERMAT', tx, y - 16, 15, bold, NAVY);
+        T(pg, 'Cerdas Numerasi dan Matematika Terapan', tx, y - 30, 10, ital, GREY);
+        T(pg, o.penyelenggara || 'Pusat Belajar Guru Kudus', tx, y - 43, 9.5, reg, GREY);
+        y -= lh + 8;
+      }
+      pg.drawRectangle({ x: M, y: y - 2, width: TW, height: 2, color: NAVY });
+      pg.drawRectangle({ x: M, y: y - 4.5, width: TW, height: 1, color: GOLDL });
+      y -= 24;
+      const title = 'DAFTAR AKUN ' + g.label.toUpperCase() + (cont ? ' (lanjutan)' : '');
+      T(pg, title, (PW - bold.widthOfTextAtSize(clean(title), 14)) / 2, y, 14, bold, NAVY);
+      y -= 15;
+      const sub = 'Pustaka Digital CERMAT & LAPORAN CERMAT  ·  Dicetak ' + o.printed;
+      T(pg, sub, (PW - reg.widthOfTextAtSize(clean(sub), 9.5)) / 2, y, 9.5, reg, GREY);
+      y -= 14;
+      if (!cont) {
+        const lines = [];
+        g.note.forEach(n => wrap(n, reg, 9.5, TW - 24).forEach(l => lines.push(l)));
+        const bh = lines.length * 12.5 + 12;
+        pg.drawRectangle({ x: M, y: y - bh, width: TW, height: bh, color: SOFT, borderColor: GOLDL, borderWidth: 0.8 });
+        lines.forEach((l, i) => T(pg, l, M + 12, y - 15 - i * 12.5, 9.5, i === 0 ? bold : reg, INK));
+        y -= bh + 12;
+      }
+      return y;
+    }
+    function tableHead(pg, y) {
+      const hh = 20;
+      pg.drawRectangle({ x: M, y: y - hh, width: TW, height: hh, color: NAVY });
+      let x = M;
+      cols.forEach(c => { T(pg, c.t, c.a === 'c' ? x + (c.w - bold.widthOfTextAtSize(c.t, 8.5)) / 2 : x + PADX, y - 13.5, 8.5, bold, rgb(1, 1, 1)); x += c.w; });
+      return y - hh;
+    }
+
+    for (const g of groups) {
+      let pg = doc.addPage([PW, PH]); pages.push(pg);
+      let y = tableHead(pg, header(pg, g, false));
+      if (!g.rows.length) { T(pg, 'Tidak ada akun.', M + PADX, y - 16, FS, ital, GREY); continue; }
+      g.rows.forEach((r, i) => {
+        const cells = cols.map(c => wrap(c.k === 'no' ? String(i + 1) : r[c.k] || '-', c.k === 'nama' ? bold : reg, FS, c.w - 2 * PADX));
+        const rh = Math.max(...cells.map(l => l.length)) * LH + 2 * PADY;
+        if (y - rh < M + 22) { pg = doc.addPage([PW, PH]); pages.push(pg); y = tableHead(pg, header(pg, g, true)); }
+        if (i % 2) pg.drawRectangle({ x: M, y: y - rh, width: TW, height: rh, color: ZEBRA });
+        let x = M;
+        cols.forEach((c, ci) => {
+          cells[ci].forEach((ln, li) => {
+            const f = c.k === 'nama' ? bold : reg;
+            const tx = c.a === 'c' ? x + (c.w - f.widthOfTextAtSize(ln, FS)) / 2 : x + PADX;
+            T(pg, ln, tx, y - PADY - 8.5 - li * LH, FS, f, c.k === 'status' && r.status !== 'Aktif' ? GREY : INK);
+          });
+          x += c.w;
+        });
+        y -= rh;
+        pg.drawLine({ start: { x: M, y }, end: { x: M + TW, y }, thickness: 0.4, color: LINE });
+      });
+    }
+    pages.forEach((pg, i) => {
+      const f = 'Rahasia: bagikan langsung ke pemilik akun, jangan ke grup.';
+      T(pg, f, M, 18, 8, ital, GREY);
+      const n = 'Halaman ' + (i + 1) + ' dari ' + pages.length;
+      T(pg, n, PW - M - reg.widthOfTextAtSize(n, 8), 18, 8, reg, GREY);
+    });
+    return doc.save();
+  }
+
+  window.PdfGen = { generate, accounts };
 })();
