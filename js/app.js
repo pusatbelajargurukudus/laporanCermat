@@ -1,4 +1,4 @@
-/* LAPORAN CERMAT v3.0 — antarmuka (multi-pengguna, data di Google Drive lewat Apps Script). */
+/* LAPORAN CERMAT v3.0.1 — antarmuka (multi-pengguna, data di Google Drive lewat Apps Script). */
 (function () {
   const R = window.Report, I = window.Importer;
   const app = document.getElementById('app');
@@ -90,6 +90,8 @@
   const inFasil = (s, u) => fasilOf(s).some(x => eqU(x, u));
   const isAdmin = () => S.user && S.user.peran === 'admin';
   const isKepsek = () => S.user && S.user.peran === 'kepsek';
+  // kepala sekolah, pemantau & admin membuka laporan sebagai pratinjau PDF (admin bisa membuka isian darurat)
+  const pvRole = () => !!(S.user && ['kepsek', 'pemantau', 'admin'].includes(S.user.peran));
   const canEdit = s => !!(S.user && s && (S.user.peran === 'admin' || (S.user.peran === 'fasilitator' && inFasil(s, S.user.username))));   // data sekolah
   const canFill = s => !!(S.user && s && S.user.peran === 'fasilitator' && inFasil(s, S.user.username));   // isi laporan
   const homeHash = () => S.user && S.user.peran === 'fasilitator' ? '#/buat' : isKepsek() ? '#/pengesahan' : '#/lihat';
@@ -823,8 +825,8 @@
         (!s.ksNama && canFill(s) ? `<div class="banner warn small">${ic('alert')}<div>Nama kepala sekolah belum diisi — diperlukan untuk tanda tangan jurnal. <a href="#/sekolah">Lengkapi di Data Sekolah →</a></div></div>` : '') +
         fase.map(([c, t, d, a, b]) => `<div class="phase ${c}"><b>${t}</b><span>${d}</span></div><div class="pcards">${window.SILABUS.filter(p => p.no >= a && p.no <= b).map(p => {
           const st = statusOf(s.id, p.no); const rk = S.rekap.get(R.key(s.id, p.no));
-          const tag = isKepsek() && st === 'kosong' ? 'div' : 'a';
-          return `<${tag} class="pcard ${c} ${st}${tag === 'div' ? ' off' : ''}"${tag === 'a' ? ` href="#/laporan/${s.id}/${p.no}/${isKepsek() ? NSTEP : 1}"` : ''}><span class="no">${p.no}</span><div><div class="tt">${esc(p.judul)}</div>
+          const tag = pvRole() && st === 'kosong' ? 'div' : 'a';
+          return `<${tag} class="pcard ${c} ${st}${tag === 'div' ? ' off' : ''}"${tag === 'a' ? ` href="#/laporan/${s.id}/${p.no}/${pvRole() ? NSTEP : 1}"` : ''}><span class="no">${p.no}</span><div><div class="tt">${esc(p.judul)}</div>
             <div class="meta"><span class="pill ${st}">${tag === 'div' ? 'belum dibuat' : stLabel(st)}</span>${rk && rk.tanggal ? esc(R.tanggalPanjang(rk.tanggal).split(', ')[1]) : ''}</div></div></${tag}>`;
         }).join('')}</div>`).join('');
     };
@@ -907,7 +909,8 @@
   }
 
   function renderEditor() {
-    if (isKepsek()) return renderKsView();
+    const adminIsi = isAdmin() && S.adminIsi === S.cur.key;
+    if (pvRole() && !adminIsi) return renderKsView();
     const rep = S.cur, s = school(rep.sekolahId), sil = R.sil(rep.no);
     const sst = sahState(s.id, rep.no);
     const locked = canFill(s) && sst.any;
@@ -926,6 +929,10 @@
       ${locked ? `<div class="banner ok small" style="margin-top:14px">${ic('lock')}<div><b>Laporan ini sudah disahkan${sst.done ? ' lengkap' : ' sebagian'}</b> (${esc(sst.list.map(r => r.nama.split(',')[0]).join(', '))}), sehingga isinya terkunci.
           Untuk mengubah isi, buka kunci terlebih dahulu — <b>semua pengesahan laporan ini dibatalkan</b> dan perlu disahkan ulang.
           <div class="row" style="margin-top:8px"><button class="btn sm" data-act="unlock">${ic('edit')}Buka kunci untuk mengubah</button></div></div></div>`
+        : ''}
+      ${adminIsi ? `<div class="banner warn small" style="margin-top:14px">${ic('alert')}<div><b>Mode isian darurat (admin).</b> Perubahan di sini ikut tersimpan ke laporan fasilitator. Gunakan hanya bila perlu.
+          <div class="row" style="margin-top:8px"><button class="btn sm" data-act="admin-pv">${ic('file')}Kembali ke pratinjau</button></div></div></div>`
+        : locked ? ''
         : readOnly ? `<div class="banner info small" style="margin-top:14px">${ic('eye')}<div>${isKepsek() ? 'Mode baca — periksa isi laporan dan pratinjau PDF-nya, lalu sahkan di langkah <b>Periksa &amp; Unduh</b>.' : `Mode baca — laporan ini diisi oleh <b>${esc(fasilNama(s) || 'fasilitator pemegang')}</b>; Anda bisa melihat isinya dan pratinjau PDF.`}</div></div>` : ''}
       <div class="ed" style="margin-top:18px">
         <nav class="stepper">${names.map((n, i) => `<a href="#/laporan/${s.id}/${rep.no}/${i + 1}" class="${S.step === i + 1 ? 'on' : ''}"><span class="n ${dots[i]}">${dots[i] === 'ok' ? ic('check') : i + 1}</span><span class="lbl">${n}</span></a>`).join('')}
@@ -966,7 +973,8 @@
           <span id="statpill" class="pill ${st}">${st === 'kosong' ? 'baru' : stLabel(st)}</span></div></div>
       <div class="ksv" style="margin-top:18px">
         <div id="kssah">${sahCard(rep, s)}
-          ${final ? `<div class="card"><button class="btn ok" data-act="download">${ic('download')}Unduh PDF</button><span class="small muted fname">${esc(R.fileName(rep, s))}</span></div>` : ''}</div>
+          ${final ? `<div class="card"><button class="btn ok" data-act="download">${ic('download')}Unduh PDF</button><span class="small muted fname">${esc(R.fileName(rep, s))}</span></div>` : ''}
+          ${isAdmin() ? `<div class="card"><p class="small muted" style="margin:0 0 10px">Khusus admin: buka tampilan isian bila fasilitator tidak bisa memperbaiki sendiri, atau untuk menghapus laporan.</p><button class="btn sm" data-act="admin-isi">${ic('edit')}Buka isian laporan (darurat)</button></div>` : ''}</div>
         <div class="card pv-card"><div class="card-h">${ic('file')}<h2>Pratinjau laporan</h2><span class="spacer"></span>
           <span class="pv-zoom"><button class="iconbtn" data-pvz="-1" title="Perkecil">${ic('minus')}</button><span id="pvzl">100%</span><button class="iconbtn" data-pvz="1" title="Perbesar">${ic('plus')}</button></span></div>
           ${!R.isComplete(rep, s) ? `<div class="banner warn small">${ic('alert')}<div>Laporan ini masih <b>draf</b> — fasilitator belum melengkapi semua bagian.</div></div>` : ''}
@@ -1977,7 +1985,7 @@
       const [sid, no] = cell.dataset.cell.split('|');
       const st = statusOf(sid, +no);
       if (st === 'lengkap') return downloadOne(sid, +no);
-      if (S.user.peran === 'pemantau') return toast(st === 'kosong' ? 'Laporan belum dibuat.' : st === 'tunggu' ? 'Laporan menunggu pengesahan.' : 'Laporan masih draf.', true);
+      if (pvRole() && st === 'kosong') return toast('Laporan belum dibuat.', true);
       location.hash = `#/laporan/${sid}/${no}/1`; return;
     }
     const b = e.target.closest('[data-act]');
@@ -2087,6 +2095,13 @@
           if (er.code === 'CONFLICT') { refreshFromServer(rep.key); refreshRekap(true); }
         }
         break;
+      }
+      case 'admin-isi': case 'admin-pv': {
+        if (!rep || !isAdmin()) return;
+        S.adminIsi = act === 'admin-isi' ? rep.key : null;
+        const h1 = `#/laporan/${rep.sekolahId}/${rep.no}/${act === 'admin-isi' ? 1 : NSTEP}`;
+        if (location.hash !== h1) location.hash = h1; else renderEditor();
+        return;
       }
       case 'unlock': {
         const n = (S.sah.get(rep.key) || []).length;

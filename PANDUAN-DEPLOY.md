@@ -1,4 +1,4 @@
-# Panduan Pemasangan LAPORAN CERMAT v3.0
+# Panduan Pemasangan LAPORAN CERMAT v3.0.1
 
 Aplikasi terdiri dari dua bagian:
 
@@ -98,6 +98,8 @@ Pemasangan cukup **sekali**, sekitar 15 menit.
 4. Buka aplikasi dan tekan **Ctrl+Shift+R** sekali.
 
 Data lama tetap aman. Kolom baru di Sheets ditambahkan otomatis.
+
+**Catatan v3.0.1:** admin dan pemantau membuka laporan sebagai pratinjau PDF (seperti kepala sekolah). Admin tetap punya tombol *Buka isian laporan (darurat)*. `Code.gs` tidak berubah.
 
 **Catatan v3.0 (Tampilan baru & Unduh daftar akun):** `Code.gs` tidak berubah, tidak perlu deploy ulang Apps Script. Unggah folder `fonts/` baru beserta file yang berubah. Di Kelola Pengguna ada tombol **Unduh daftar akun** (PDF per jenis akun, berkop).
 
