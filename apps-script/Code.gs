@@ -166,6 +166,7 @@ var ACTIONS = {
  * - Admin menempelkan tautan EDIT form tiap pendampingan (P1–P7). Tautan edit hanya disimpan di server;
  *   yang dibagikan ke peserta adalah tautan isian (getPublishedUrl) + isian awal Jenis tes & Asal sekolah.
  * - Fasilitator membuka (aktifkan) pretes/postes untuk sekolahnya; otomatis tertutup pukul 23.59 hari itu.
+ *   Membuka postes otomatis menutup pretes sekolah itu.
  * - Guru & kepala sekolah hanya menerima tautan isian bila tesnya sedang dibuka untuk sekolah mereka.
  * - Nilai bisa diambil langsung dari jawaban form (akun pemilik skrip harus editor form).
  * ============================================================= */
@@ -299,6 +300,11 @@ function tesSet_(req, user) {
       : { aktif: 'tidak', sampai: now_(), oleh: user.nama, waktu: now_() };
     if (ada) update_('TesBuka', ada._row, patch);
     else if (req.buka) insert_('TesBuka', patch);
+    // membuka postes otomatis menutup pretes sekolah itu (satu form dipakai untuk keduanya)
+    if (req.buka && jenis === 'post') {
+      var pre = rows_('TesBuka').filter(function (b) { return b.sekolahId === sk.id && String(b.no) === String(no) && b.jenis === 'pre' && tesAktif_(b); })[0];
+      if (pre) update_('TesBuka', pre._row, { aktif: 'tidak', sampai: now_(), oleh: user.nama, waktu: now_() });
+    }
     log_(user.username, req.buka ? 'tesBuka' : 'tesTutup', sk.nama + ' P' + no + ' ' + jenis);
     return tesList_({}, user);
   });
