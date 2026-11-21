@@ -13,15 +13,15 @@
  *   3. Deploy > New deployment > Web app (Execute as: Me, Who has access: Anyone)
  */
 
-var APP_VERSION = '3.0.2';
-var SCHEMA = '2.6';
+var APP_VERSION = '3.1.0';
+var SCHEMA = '2.7';
 var SESSION_DAYS = 30;
 var MAX_FAIL = 5;          // salah sandi berturut-turut
 var LOCK_SECONDS = 600;    // lama kunci setelah salah sandi (detik)
 var HASH_ROUNDS = 120;
 var ROLES = ['admin', 'fasilitator', 'pemantau', 'kepsek', 'guru'];
 /* Akun guru (satu akun dipakai bersama per sekolah) hanya untuk masuk portal CERMAT. */
-var GURU_ACTIONS = ['bootstrap', 'me', 'logout', 'tesList'];
+var GURU_ACTIONS = ['bootstrap', 'me', 'logout', 'tesList', 'materiList', 'materiPdf'];
 /* Pendampingan yang memakai pretes & postes (satu Google Form per pendampingan). */
 var TES_NO = [1, 2, 3, 4, 5, 6, 7];
 var REF_NO = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22];   // refleksi: satu form per pendampingan
@@ -42,7 +42,9 @@ var SHEETS = {
   Log: ['waktu', 'username', 'aksi', 'detail'],
   Pengesahan: ['id', 'key', 'peran', 'username', 'nama', 'nip', 'version', 'waktu', 'aktif', 'batalAt'],
   TesTautan: ['no', 'editUrl', 'formId', 'pubUrl', 'entJenis', 'optPre', 'optPost', 'entSekolah', 'opsiSekolah', 'catatan', 'diubah', 'oleh', 'entNama', 'entJabatan', 'opsiJabatan'],   // entNama '-' = form tanpa isian nama
-  TesBuka: ['sekolahId', 'no', 'jenis', 'aktif', 'sampai', 'oleh', 'waktu']
+  TesBuka: ['sekolahId', 'no', 'jenis', 'aktif', 'sampai', 'oleh', 'waktu'],
+  MateriBuka: ['sekolahId', 'no', 'aktif', 'oleh', 'waktu'],          // materi pendampingan yang ditampilkan untuk guru & kepsek
+  MateriPeta: ['fileId', 'dari', 'sampai', 'oleh', 'waktu']           // rentang pendampingan yang diisi admin (mis. modul P1–P7)
 };
 
 /* =============================================================
@@ -157,6 +159,10 @@ var ACTIONS = {
   tesResponses: { fn: tesResponses_ },
   tesLinks: { role: 'admin', fn: tesLinks_ },
   tesSaveLinks: { role: 'admin', fn: tesSaveLinks_ },
+  materiList: { fn: materiList_ },
+  materiSet: { fn: materiSet_ },
+  materiPeta: { role: 'admin', fn: materiPeta_ },
+  materiPdf: { fn: materiPdf_ },
 
   listUsers: { role: 'admin', fn: listUsers_ },
   saveUser: { role: 'admin', fn: saveUser_ },
@@ -375,6 +381,8 @@ function tesSet_(req, user) {
       : { aktif: 'tidak', sampai: now_(), oleh: user.nama, waktu: now_() };
     if (ada) update_('TesBuka', ada._row, patch);
     else if (req.buka) insert_('TesBuka', patch);
+    // membuka pretes otomatis menampilkan materi pendampingan itu untuk sekolah tersebut
+    if (req.buka && jenis === 'pre') materiTandai_(sk.id, no, true, user);
     // membuka postes otomatis menutup pretes sekolah itu (satu form dipakai untuk keduanya)
     // dan membuka refleksi pendampingan itu (bila tautannya sudah diisi admin)
     if (req.buka && jenis === 'post') {
@@ -522,6 +530,181 @@ function tesPoints_(it) {
   if (t === T.DATE) return it.asDateItem().getPoints();
   if (t === T.TIME) return it.asTimeItem().getPoints();
   return 0;
+}
+
+/* =============================================================
+ * MATERI (Modul, Lembar Kerja, Bahan Tayang) — daftar file folder Drive di kartu portal
+ * - Folder yang boleh dibaca: hanya folder di kartu data.json portal yang terlihat untuk peran itu.
+ * - Nomor pendampingan dibaca dari nama subfolder/file ("P3", "Pendampingan 3", "Fase 1", "P1–P7");
+ *   admin bisa mengisi rentang sendiri (MateriPeta). File tanpa nomor selalu terbuka.
+ * - Guru & kepala sekolah: file pendampingan yang belum ditampilkan fasilitator dikirim tanpa id (terkunci).
+ * ============================================================= */
+var PORTAL_DATA = 'https://pusatbelajargurukudus.github.io/cermat/data.json';
+var FASE = [[1, 7], [8, 16], [17, 22]];
+
+function materiFolderId_(url) {
+  var m = String(url || '').match(/\/folders\/([A-Za-z0-9_-]{10,})/) || String(url || '').match(/[?&]id=([A-Za-z0-9_-]{10,})/);
+  return m ? m[1] : '';
+}
+function materiKartu_(user) {
+  var cache = CacheService.getScriptCache();
+  var raw = cache.get('portalData');
+  if (!raw) {
+    var url = PropertiesService.getScriptProperties().getProperty('PORTAL_DATA') || PORTAL_DATA;
+    var r = UrlFetchApp.fetch(url + '?t=' + Date.now(), { muteHttpExceptions: true });
+    if (r.getResponseCode() !== 200) throw err_('Daftar folder portal tidak terbaca. Coba lagi sebentar.', 'MATERI');
+    raw = r.getContentText();
+    try { cache.put('portalData', raw, 600); } catch (e) { /* terlalu besar: tanpa cache */ }
+  }
+  var d = JSON.parse(raw), out = [];
+  (d.groups || []).forEach(function (g) {
+    (g.links || []).forEach(function (l) {
+      if (l.hidden) return;
+      if (user.peran === 'kepsek' && l.ks !== true) return;
+      if (user.peran === 'guru' && l.guru !== true) return;
+      var id = materiFolderId_(l.url);
+      if (id) out.push({ id: id, judul: l.title });
+    });
+  });
+  return out;
+}
+
+/* Nomor pendampingan dari teks: rentang "P1–P7" / "P1 s.d. P7", "Fase 2", atau satu nomor "P3" / "Pendampingan ke-3" */
+function materiNomor_(t, folder) {
+  t = String(t || '');
+  var m = t.match(/\bP(?:D)?\s*0?(\d{1,2})\s*(?:-|–|—|s\.?\s*d\.?|sampai|hingga)\s*P?\s*0?(\d{1,2})\b/i);
+  if (m) { var a = +m[1], b = +m[2]; if (a >= 1 && b <= 22 && a <= b) return [a, b]; }
+  m = t.match(/\bfase\s*(1|2|3|i{1,3})\b/i);
+  if (m) { var f = { '1': 0, '2': 1, '3': 2, i: 0, ii: 1, iii: 2 }[m[1].toLowerCase()]; return FASE[f].slice(); }
+  m = t.match(/\b(?:pendampingan|pertemuan)\s*(?:ke\s*-?\s*)?0?(\d{1,2})\b/i) || t.match(/\bP(?:D)?\s*-?\s*0?(\d{1,2})\b/i);
+  if (!m && folder) m = t.match(/^\s*0?(\d{1,2})(?:\s*[.)_\-]|\s+[A-Za-z])/);   // subfolder "03. Numerasi …"
+  if (m) { var n = +m[1]; if (n >= 1 && n <= 22) return [n, n]; }
+  return null;
+}
+
+function materiBaca_(folderId) {
+  var cache = CacheService.getScriptCache(), key = 'mat:' + folderId;
+  var c = cache.get(key);
+  if (c) return JSON.parse(c);
+  var root;
+  try { root = DriveApp.getFolderById(folderId); }
+  catch (e) { throw err_('Folder materi tidak bisa dibuka server. Pastikan akun pemilik Apps Script bisa membuka folder itu.', 'MATERI'); }
+  var files = [];
+  var walk = function (folder, path, depth) {
+    var it = folder.getFiles();
+    while (it.hasNext() && files.length < 400) {
+      var x = it.next();
+      if (x.isTrashed()) continue;
+      var id = x.getId(), mime = x.getMimeType();
+      if (mime === 'application/vnd.google-apps.shortcut') { try { id = x.getTargetId(); mime = x.getTargetMimeType(); } catch (e) { continue; } }
+      var r = materiNomor_(x.getName(), false);
+      for (var i = path.length - 1; !r && i >= 0; i--) r = materiNomor_(path[i], true);
+      files.push({ id: id, nama: x.getName(), mime: mime, ukuran: x.getSize(), diubah: x.getLastUpdated().getTime(), folder: path.join(' / '),
+        dari: r ? r[0] : null, sampai: r ? r[1] : null });
+    }
+    if (depth >= 2) return;
+    var fi = folder.getFolders();
+    while (fi.hasNext()) { var sf = fi.next(); if (!sf.isTrashed()) walk(sf, path.concat([sf.getName()]), depth + 1); }
+  };
+  walk(root, [], 0);
+  var out = { judul: root.getName(), files: files };
+  try { cache.put(key, JSON.stringify(out), 600); } catch (e) { /* lebih dari 100 KB: tanpa cache */ }
+  return out;
+}
+
+function materiTandai_(sid, no, tampil, user) {
+  var ada = rows_('MateriBuka').filter(function (b) { return b.sekolahId === sid && String(b.no) === String(no); })[0];
+  var patch = { sekolahId: sid, no: String(no), aktif: tampil ? 'ya' : 'tidak', oleh: user.nama, waktu: now_() };
+  if (ada) update_('MateriBuka', ada._row, patch); else if (tampil) insert_('MateriBuka', patch);
+}
+function materiBukaMap_(sids) {
+  var ok = {}; sids.forEach(function (s) { ok[s] = true; });
+  var m = {};
+  rows_('MateriBuka').forEach(function (b) { if (ok[b.sekolahId] && b.aktif === 'ya') (m[b.sekolahId] = m[b.sekolahId] || []).push(Number(b.no)); });
+  return m;
+}
+function materiTerbuka_(f, nos) {
+  if (f.dari === null || f.dari === undefined || f.dari === '') return true;
+  for (var n = Number(f.dari); n <= Number(f.sampai); n++) if (nos.indexOf(n) >= 0) return true;
+  return false;
+}
+/* daftar file folder kartu, sudah memakai rentang dari admin & status kunci untuk guru/kepsek */
+function materiSiapkan_(folderId, user) {
+  var kartu = materiKartu_(user).filter(function (k) { return k.id === folderId; })[0];
+  if (!kartu) throw err_('Folder ini tidak tersedia untuk akun Anda.', 'FORBIDDEN');
+  var data = materiBaca_(folderId);
+  var peta = {};
+  rows_('MateriPeta').forEach(function (p) { peta[p.fileId] = p; });
+  var sks = tesSekolahFor_(user);
+  var buka = materiBukaMap_(sks.map(function (s) { return s.id; }));
+  var peserta = user.peran === 'guru' || user.peran === 'kepsek';
+  var nos = peserta && sks.length ? (buka[sks[0].id] || []) : [];
+  var files = data.files.map(function (f) {
+    var o = {}; Object.keys(f).forEach(function (k) { o[k] = f[k]; });
+    var pt = peta[f.id];
+    if (pt) { o.dari = pt.dari === '' ? null : Number(pt.dari); o.sampai = pt.sampai === '' ? null : Number(pt.sampai); o.admin = true; }
+    if (peserta && !materiTerbuka_(o, nos)) { o.id = ''; o.kunci = true; }
+    return o;
+  });
+  return { kartu: kartu.judul, judul: data.judul, files: files, buka: buka,
+    sekolah: sks.map(function (s) { return { id: s.id, nama: s.nama }; }) };
+}
+function materiList_(req, user) {
+  var id = String(req.folderId || '');
+  if (req.segar && user.peran !== 'guru' && user.peran !== 'kepsek') CacheService.getScriptCache().remove('mat:' + id);
+  return materiSiapkan_(id, user);
+}
+function materiSet_(req, user) {
+  var no = parseInt(req.no, 10);
+  if (REF_NO.indexOf(no) < 0) throw err_('Nomor pendampingan tidak valid.', 'BAD');
+  var sk = sekolahById_(String(req.sekolahId || ''));
+  if (!(user.peran === 'admin' || canFill_(user, sk))) throw err_('Hanya fasilitator sekolah ini yang bisa menampilkan materi.', 'FORBIDDEN');
+  lock_(function () { materiTandai_(sk.id, no, !!req.tampil, user); });
+  log_(user.username, req.tampil ? 'materiTampil' : 'materiSembunyi', sk.nama + ' P' + no);
+  return { buka: materiBukaMap_([sk.id]) };
+}
+function materiPeta_(req, user) {
+  var fid = String(req.fileId || ''); if (!fid) throw err_('File tidak valid.', 'BAD');
+  var dari = req.dari ? parseInt(req.dari, 10) : '', sampai = req.sampai ? parseInt(req.sampai, 10) : dari;
+  if (dari !== '' && !(dari >= 1 && sampai <= 22 && dari <= sampai)) throw err_('Rentang pendampingan tidak valid.', 'BAD');
+  lock_(function () {
+    var ada = rows_('MateriPeta').filter(function (p) { return p.fileId === fid; })[0];
+    var patch = { fileId: fid, dari: dari === '' ? '' : String(dari), sampai: dari === '' ? '' : String(sampai), oleh: user.nama, waktu: now_() };
+    if (req.hapus) { if (ada) deleteRow_('MateriPeta', ada._row); }
+    else if (ada) update_('MateriPeta', ada._row, patch); else insert_('MateriPeta', patch);
+  });
+  return true;
+}
+/* Isi PDF untuk dibaca offline, dikirim per bagian (3 MB) supaya tidak melebihi batas jawaban Apps Script */
+function materiPdf_(req, user) {
+  var fid = String(req.fileId || ''), part = parseInt(req.part, 10) || 0;
+  var ketemu = null;
+  materiKartu_(user).some(function (k) {
+    var d = materiSiapkan_(k.id, user);
+    ketemu = d.files.filter(function (f) { return f.id && f.id === fid; })[0] || null;
+    return !!ketemu;
+  });
+  if (!ketemu) throw err_('File ini tidak tersedia untuk akun Anda.', 'FORBIDDEN');
+  if (ketemu.mime !== 'application/pdf') throw err_('Hanya PDF yang bisa disimpan untuk dibaca offline.', 'BAD');
+  var bytes = DriveApp.getFileById(fid).getBlob().getBytes();
+  var UK = 3 * 1024 * 1024, parts = Math.max(1, Math.ceil(bytes.length / UK));
+  if (part < 0 || part >= parts) throw err_('Bagian file tidak valid.', 'BAD');
+  return { part: part, parts: parts, ukuran: bytes.length, b64: Utilities.base64Encode(bytes.slice(part * UK, (part + 1) * UK)) };
+}
+
+/* Jalankan sekali dari editor Apps Script untuk memberi izin membaca daftar folder portal (UrlFetch) */
+function cekMateri() {
+  var kartu = materiKartu_({ peran: 'admin' });
+  Logger.log(kartu.length + ' folder kartu: ' + kartu.map(function (k) { return k.judul; }).join(', '));
+  kartu.forEach(function (k) {
+    try {
+      CacheService.getScriptCache().remove('mat:' + k.id);
+      var fs = materiBaca_(k.id).files, g = {};
+      fs.forEach(function (f) { var key = f.dari === null ? 'tanpa nomor (selalu terbuka)' : 'P' + f.dari + (f.sampai !== f.dari ? '–P' + f.sampai : ''); (g[key] = g[key] || []).push(f.nama); });
+      Logger.log('== ' + k.judul + ': ' + fs.length + ' file');
+      Object.keys(g).forEach(function (key) { Logger.log('   ' + key + ': ' + g[key].join(', ')); });
+    } catch (e) { Logger.log(k.judul + ': ' + e.message); }
+  });
 }
 
 /* =============================================================

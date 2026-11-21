@@ -1,4 +1,4 @@
-# Panduan Pemasangan LAPORAN CERMAT v3.4.2
+# Panduan Pemasangan LAPORAN CERMAT v3.5
 
 Aplikasi terdiri dari dua bagian:
 
@@ -98,6 +98,13 @@ Pemasangan cukup **sekali**, sekitar 15 menit.
 4. Buka aplikasi dan tekan **Ctrl+Shift+R** sekali.
 
 Data lama tetap aman. Kolom baru di Sheets ditambahkan otomatis.
+
+**Catatan v3.5 (Materi tampil di dalam CERMAT, server 3.1.0) — WAJIB deploy ulang + izin baru:**
+1. Ganti seluruh isi `Code.gs`, **Simpan**.
+2. Di editor Apps Script pilih fungsi **`cekMateri`** lalu **Jalankan**. Google meminta izin baru (**menghubungkan ke layanan eksternal**, untuk membaca daftar folder `data.json` portal): Lanjutan → Buka (tidak aman) → Izinkan. Log menampilkan file setiap folder kartu beserta nomor pendampingan yang terbaca; periksa apakah pengelompokannya benar.
+3. **Deploy → Kelola deployment → pensil → Versi baru → Deploy.**
+4. Lembar `MateriBuka` (materi yang ditampilkan per sekolah & pendampingan) dan `MateriPeta` (rentang modul dari admin) dibuat otomatis.
+5. Kartu berisi tautan **folder** Google Drive membuka daftar file di dalam CERMAT. Guru & kepsek hanya bisa membuka materi pendampingan yang sudah ditampilkan fasilitator; mengaktifkan pretes ikut menampilkan materi pendampingan itu. File tanpa nomor pendampingan selalu terbuka. Alamat `data.json` portal bisa diganti lewat Script Property `PORTAL_DATA`.
 
 **Catatan v3.4.2 (Arti skor refleksi, server 3.0.2) — deploy ulang Apps Script (Versi baru):**
 - Arti angka skala dicari di deskripsi pertanyaan, lalu deskripsi **bagian** di atasnya (mis. "A. Refleksi Tertutup"), lalu deskripsi form. Format `1 = …`, `1: …`, `1. …`, `1 (…)`, `… = 1`, pemisah `·` `|` `;` koma/baris baru, dan singkatan STS/TS/S/SS dikenali.
