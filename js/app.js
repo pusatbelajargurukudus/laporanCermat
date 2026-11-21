@@ -1435,8 +1435,8 @@
     h += `<div class="stats"><div class="stat ok"><b>${R0.n}</b><span>peserta mengisi${hadir ? ' · ' + hadir + ' hadir' : ''}</span></div></div>
       <label class="f" style="margin-top:14px">Kesimpulan refleksi <span class="small muted">(tercetak di laporan, boleh diedit)</span></label>
       <textarea data-ref-kes style="min-height:150px"${readOnly ? ' readonly' : ''}>${esc(R0.kesimpulan || '')}</textarea>
-      <details class="adv"><summary>Rincian per pertanyaan (${R0.items.length})</summary><table class="simple"><tbody>
-        ${R0.items.map(o => `<tr><td style="width:40%"><b>${esc(o.judul)}</b></td><td class="small">${esc(I.refRingkas(o))}</td></tr>`).join('')}</tbody></table></details>
+      ${(rows => `<details class="adv"><summary>Rincian per pertanyaan (${rows.length})</summary><table class="simple"><tbody>
+        ${rows.map(([q, k]) => `<tr><td style="width:42%"><b>${esc(q)}</b></td><td class="small">${esc(k)}</td></tr>`).join('')}</tbody></table></details>`)([].concat(...R0.items.map(o => I.refBaris(o))))}
       <details class="adv"><summary>Yang mengisi (${R0.n})</summary><p class="small">${esc((R0.nama || []).join(', '))}</p></details>`;
     if (!readOnly) h += `<div class="row ro-hide" style="margin-top:12px">${btnForm('Perbarui dari Google Form')}
       ${R0.kesEdit ? `<button class="btn ghost" data-act="ref-susun">Susun ulang kesimpulan</button>` : ''}

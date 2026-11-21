@@ -148,7 +148,7 @@
 
     /* Daftar bernomor/berhuruf/centang. */
     list(items, opt = {}) {
-      const o = Object.assign({ x: IND, size: 11, font: this.f.reg, color: INK, lh: 1.5, marker: 'alpha', align: 'left', after: 2, mw: 18 }, opt);
+      const o = Object.assign({ x: IND, size: 11, font: this.f.reg, color: INK, lh: 1.5, marker: 'alpha', align: 'justify', after: 2, mw: 18 }, opt);   // rata kiri-kanan; baris terakhir tiap butir tetap rata kiri
       const lhpt = o.size * o.lh;
       items.forEach((it, idx) => {
         const maxW = CW - o.x - o.mw;
@@ -461,8 +461,9 @@
       w.h1(++n, 'Refleksi Peserta');
       w.para((rf.kesimpulan || rf.kesAuto || '').trim() || '-', { first: 28 });
       if ((rf.items || []).length && window.Importer && window.Importer.refRingkas) {
-        w.table([{ t: 'Pertanyaan refleksi', w: 0.42 }, { t: 'Rangkuman jawaban', w: 0.58 }],
-          rf.items.map(o => [o.judul, window.Importer.refRingkas(o)]), { size: 9.5 });
+        const I = window.Importer, baris = [];
+        rf.items.forEach(o => (I.refBaris ? I.refBaris(o) : [[o.judul, I.refRingkas(o)]]).forEach(r => baris.push(r)));
+        w.table([{ t: 'Pertanyaan / pernyataan refleksi', w: 0.45 }, { t: 'Rangkuman jawaban', w: 0.55 }], baris, { size: 9.5 });
       }
     }
 

@@ -13,7 +13,7 @@
  *   3. Deploy > New deployment > Web app (Execute as: Me, Who has access: Anyone)
  */
 
-var APP_VERSION = '3.0.0';
+var APP_VERSION = '3.0.1';
 var SCHEMA = '2.6';
 var SESSION_DAYS = 30;
 var MAX_FAIL = 5;          // salah sandi berturut-turut
@@ -480,7 +480,8 @@ function tesResponses_(req, user) {
 
 function tesItemInfo_(it) {
   var T = FormApp.ItemType, t = it.getType();
-  var o = { judul: it.getTitle(), jenis: String(t) };
+  var o = { judul: it.getTitle(), jenis: String(t), ket: '' };
+  try { o.ket = String(it.getHelpText() || ''); } catch (e) { /* tanpa keterangan */ }
   try {
     if (t === T.SCALE) { var sc = it.asScaleItem(); o.jenis = 'SCALE'; o.min = sc.getLowerBound(); o.max = sc.getUpperBound(); o.minLabel = sc.getLeftLabel(); o.maxLabel = sc.getRightLabel(); }
     else if (t === T.MULTIPLE_CHOICE) { o.jenis = 'MC'; o.pilihan = it.asMultipleChoiceItem().getChoices().map(function (c) { return c.getValue(); }); }
