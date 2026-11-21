@@ -1,4 +1,4 @@
-# Panduan Pemasangan LAPORAN CERMAT v3.1
+# Panduan Pemasangan LAPORAN CERMAT v3.2
 
 Aplikasi terdiri dari dua bagian:
 
@@ -98,6 +98,13 @@ Pemasangan cukup **sekali**, sekitar 15 menit.
 4. Buka aplikasi dan tekan **Ctrl+Shift+R** sekali.
 
 Data lama tetap aman. Kolom baru di Sheets ditambahkan otomatis.
+
+**Catatan v3.2 (Ambil nilai otomatis & nama ganda, server 2.9.2) — WAJIB deploy ulang Apps Script:**
+1. Ganti seluruh isi `Code.gs` dengan versi ini, **Simpan**, lalu **Deploy → Kelola deployment → pensil → Versi baru → Deploy**. URL tetap sama, tidak ada izin baru.
+2. Lembar `Peserta` mendapat kolom `alias` (ejaan lain nama) dan `gabungan` (id nama ganda yang sudah digabung) secara otomatis.
+3. **Ambil nilai dari Google Form** langsung jalan: kolom dan sekolah dikenali otomatis. Hanya nama yang berbeda dari daftar guru yang ditanyakan (*Periksa nama*); pilihan diingat untuk pendampingan berikutnya.
+4. Bila tautan form pendampingan sudah diatur admin, tombol unggah CSV/Excel diganti tautan kecil *pakai file CSV/Excel* (cadangan).
+5. Data Sekolah → Data guru → **Gabungkan nama ganda** untuk merapikan nama dobel yang sudah terlanjur tercatat.
 
 **Catatan v3.1 (Pretes & Postes, server 2.9.0) — WAJIB deploy ulang Apps Script:**
 1. Ganti seluruh isi `Code.gs` di editor Apps Script dengan `apps-script/Code.gs` versi ini, lalu **Simpan**.

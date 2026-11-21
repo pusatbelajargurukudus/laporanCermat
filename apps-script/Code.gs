@@ -13,8 +13,8 @@
  *   3. Deploy > New deployment > Web app (Execute as: Me, Who has access: Anyone)
  */
 
-var APP_VERSION = '2.9.0';
-var SCHEMA = '2.4';
+var APP_VERSION = '2.9.2';
+var SCHEMA = '2.5';
 var SESSION_DAYS = 30;
 var MAX_FAIL = 5;          // salah sandi berturut-turut
 var LOCK_SECONDS = 600;    // lama kunci setelah salah sandi (detik)
@@ -29,7 +29,7 @@ var PROGRAM_KEYS = ['program', 'programKepanjangan', 'penyelenggara', 'kota', 'k
 var SHEETS = {
   Pengguna: ['username', 'nama', 'peran', 'salt', 'hash', 'aktif', 'dibuat', 'terakhirLogin', 'nip', 'sekolahId'],
   Sekolah: ['id', 'nama', 'alias', 'fasil', 'folderId', 'urutan', 'ksNama', 'ksNip'],
-  Peserta: ['id', 'sekolahId', 'nama', 'jabatan', 'kelas'],
+  Peserta: ['id', 'sekolahId', 'nama', 'jabatan', 'kelas', 'alias', 'gabungan'],   // alias: ejaan nama di form; gabungan: id peserta ganda yang sudah digabung ke baris ini
   Program: ['kunci', 'nilai'],
   Rekap: ['key', 'sekolahId', 'sekolah', 'no', 'judul', 'status', 'tanggal', 'rataPre', 'rataPost',
     'fileId', 'folderId', 'pdfId', 'pdfAt', 'updatedAt', 'updatedBy', 'version', 'reward'],
@@ -544,8 +544,13 @@ function bootstrap_(req, user) {
     user: publicUser_(user),
     program: prog,
     sekolah: rows_('Sekolah').filter(function (s) { return ok(s.id); }).map(sekolahOut_).sort(function (a, b) { return (a.urutan - b.urutan) || a.nama.localeCompare(b.nama); }),
-    peserta: rows_('Peserta').filter(function (p) { return ok(p.sekolahId); }).map(function (p) { return { id: p.id, sekolahId: p.sekolahId, nama: p.nama, jabatan: p.jabatan, kelas: p.kelas }; }),
+    peserta: rows_('Peserta').filter(function (p) { return ok(p.sekolahId); }).map(function (p) {
+      return { id: p.id, sekolahId: p.sekolahId, nama: p.nama, jabatan: p.jabatan, kelas: p.kelas,
+        alias: p.alias ? p.alias.split('|') : [], gabungan: p.gabungan ? p.gabungan.split('|') : [] };
+    }),
     pengguna: rows_('Pengguna').map(publicUser_),
+    // pendampingan yang sudah punya tautan Google Form (tombol unggah CSV jadi cadangan)
+    tesForm: (function () { var L = tesRowsByNo_(); return TES_NO.filter(function (no) { return L[String(no)] && L[String(no)].formId; }); })(),
     rekap: rekapList_(user),
     pengesahan: sahList_(user)
   };
@@ -712,7 +717,9 @@ function savePeserta_(req, user) {
   var sk = sekolahById_(req.sekolahId);
   if (!canEdit_(user, sk)) throw err_('Anda hanya bisa mengubah peserta sekolah yang Anda pegang.', 'FORBIDDEN');
   var list = (req.peserta || []).map(function (p) {
-    return { id: String(p.id || ''), sekolahId: sk.id, nama: String(p.nama || '').trim().slice(0, 150), jabatan: String(p.jabatan || ''), kelas: String(p.kelas || '') };
+    var daftar = function (v, max) { return (Array.isArray(v) ? v : String(v || '').split('|')).map(function (x) { return String(x).replace(/\|/g, ' ').trim(); }).filter(String).slice(0, max).join('|'); };
+    return { id: String(p.id || ''), sekolahId: sk.id, nama: String(p.nama || '').trim().slice(0, 150), jabatan: String(p.jabatan || ''), kelas: String(p.kelas || ''),
+      alias: daftar(p.alias, 20), gabungan: daftar(p.gabungan, 50) };
   }).filter(function (p) { return p.id && p.nama; });
   lock_(function () { replacePeserta_(sk.id, list); });
   return list.length;

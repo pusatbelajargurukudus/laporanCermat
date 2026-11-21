@@ -531,3 +531,17 @@ a.pick:hover, a.pcard:hover { border-color: var(--gold-l); }
 .aplist label > span:first-of-type { flex: 1; }
 .aplist .apall { background: #f8f9fc; }
 .aplist label:hover { background: var(--navy-soft); }
+
+/* Periksa nama (impor nilai) & gabungkan nama ganda */
+.nrevs { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.nrev { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 12px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.nrev:last-child { border-bottom: 0; }
+.nrev.warn { background: #fff8e6; }
+.nrev .nrn { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.nrev .nrn b { overflow-wrap: anywhere; }
+.nrev select { width: 100%; }
+.nrev .btn { justify-self: end; }
+@media (max-width: 640px) { .nrev { grid-template-columns: 1fr; } .nrev .btn { justify-self: start; } }
+/* tautan kecil "pakai file CSV/Excel" (cadangan bila nilai diambil dari Google Form) */
+.lnk { color: var(--navy-2); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.lnk:hover { color: var(--navy); }

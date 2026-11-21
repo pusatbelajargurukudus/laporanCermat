@@ -5,12 +5,64 @@
   const U = {};
 
   /* ---------- Normalisasi ---------- */
+  /* Nama orang -> bentuk baku untuk dicocokkan: tanpa gelar, sapaan, tanda baca, huruf besar. */
+  const SAPAAN = /^(bu|ibu|bpk|pak|bapak|mbak|mba|mas|kak|ust|ustadz|ustadzah|ustazah|ustaz|hj|h|haji|hajjah|dra|drs|dr|ir|prof|kh|ny|nn|sdr|sdri)$/;
+  const GELAR = /^(s|m|a|d)(pd|pdi|pdsd|si|ag|hum|e|h|t|sos|ak|kes|kom|sn|ip|psi|th|thi|kep|gz|ikom|ma|mapd|sy|hi|fil|ked)+$|^(spd|mpd|sag|spdi|spdsd|ssi|se|skom|sh|ss|ama|amapd|mm|msi|mag|mkes|mt|st|sip|ssos|shi|sthi|sei|lc|ma|ba|bsc|msc|phd)$/;
   U.normName = function (s) {
-    s = String(s || '').replace(/ /g, ' ');
+    s = String(s || '').replace(/ /g, ' ');
     s = s.split(',')[0];                       // buang gelar di belakang koma
-    s = s.replace(/\b(drs?|dra|hj?|ir|prof)\.\s*/gi, ' '); // gelar depan
-    s = s.replace(/\b(s|m|a)\.\s?(pd|si|kom|ag|hum|e|h|t|sos|ak|kes|sn|ip)\b\.?/gi, ' ');
-    return s.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    const tok = s.toLowerCase().replace(/[^a-z0-9.\s'-]/g, ' ').split(/\s+/).filter(Boolean);
+    const out = [];
+    tok.forEach((t, i) => {
+      const bare = t.replace(/[.'-]/g, '');
+      if (!bare) return;
+      if (SAPAAN.test(bare) && tok.length > 1) return;                 // sapaan / gelar depan
+      if (/\./.test(t) && bare.length >= 2 && GELAR.test(bare)) return; // S.Pd., M.Pd., S.Pd.SD, A.Ma.Pd
+      if (i > 0 && GELAR.test(bare) && bare.length >= 3) return;        // SPd, MPd tanpa titik (bukan kata pertama)
+      out.push(bare);
+    });
+    return out.join(' ').trim();
+  };
+
+  /* Kemiripan dua nama baku (0..1): Levenshtein ternormalisasi */
+  U.lev = function (a, b) {
+    if (a === b) return 0;
+    const m = a.length, n = b.length;
+    if (!m || !n) return m || n;
+    let prev = Array.from({ length: n + 1 }, (_, j) => j);
+    for (let i = 1; i <= m; i++) {
+      const cur = [i];
+      for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = cur;
+    }
+    return prev[n];
+  };
+  U.mirip = function (a, b) {
+    if (!a || !b) return 0;
+    if (a === b) return 1;
+    const full = 1 - U.lev(a, b) / Math.max(a.length, b.length);
+    // semua kata satu nama ada (persis/mirip) di nama lain: "Rina" ~ "Rina Kusuma", "Lestari W." ~ "Lestari Wulandari"
+    // dicek dua arah, karena jumlah kata bisa sama ("lestari w" vs "lestari wulandari")
+    const sub = (sh, lo) => {
+      if (sh.length > lo.length) return 0;
+      const tokSim = t => Math.max(...lo.map(u => t.length === 1 ? (u[0] === t ? 1 : 0) : 1 - U.lev(t, u) / Math.max(t.length, u.length)));   // "M." = Muhammad
+      const ok = sh.every(t => tokSim(t) >= (t.length <= 3 ? 1 : 0.8)) && sh.some(t => t.length >= 3);
+      return ok ? 0.9 - 0.02 * (lo.length - sh.length) : 0;
+    };
+    const ta = a.split(' '), tb = b.split(' ');
+    return Math.max(full, sub(ta, tb), sub(tb, ta));
+  };
+
+  /* Cocokkan satu nama dari form ke daftar peserta sekolah.
+   * -> { p, cara: 'persis'|'ejaan'|'mirip', skor } atau { p: null, saran: [...] } */
+  U.cocokkan = function (nama, peserta) {
+    const n = U.normName(nama);
+    if (!n) return { p: null, saran: [] };
+    for (const p of peserta) if (U.normName(p.nama) === n) return { p, cara: 'persis', skor: 1 };
+    for (const p of peserta) if ((p.alias || []).some(a => U.normName(a) === n)) return { p, cara: 'ejaan', skor: 1 };
+    const sk = peserta.map(p => ({ p, skor: Math.max(U.mirip(n, U.normName(p.nama)), ...(p.alias || []).map(a => U.mirip(n, U.normName(a)))) }))
+      .filter(x => x.skor >= 0.78).sort((a, b) => b.skor - a.skor);
+    return { p: null, saran: sk.slice(0, 3) };
   };
 
   U.normSchool = function (s) {
