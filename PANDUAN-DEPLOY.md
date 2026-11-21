@@ -1,4 +1,4 @@
-# Panduan Pemasangan LAPORAN CERMAT v3.5
+# Panduan Pemasangan LAPORAN CERMAT v3.6
 
 Aplikasi terdiri dari dua bagian:
 
@@ -98,6 +98,13 @@ Pemasangan cukup **sekali**, sekitar 15 menit.
 4. Buka aplikasi dan tekan **Ctrl+Shift+R** sekali.
 
 Data lama tetap aman. Kolom baru di Sheets ditambahkan otomatis.
+
+**Catatan v3.6 (Indeks materi & satu folder PUSTAKA CERMAT, server 3.2.0) — WAJIB deploy ulang + izin:**
+1. Ganti seluruh isi `Code.gs`, **Simpan**.
+2. Di Pustaka CERMAT → Atur Folder, tautan kartu **Modul, Bahan Tayang, Lembar Kerja, Silabus** boleh diarahkan ke folder yang sama (mis. **PUSTAKA CERMAT**). Simpan ke GitHub dan tunggu 1–2 menit.
+3. Di editor Apps Script pilih fungsi **`pasangMateri`** → **Jalankan** → izinkan (pemicu terjadwal & layanan eksternal). Fungsi ini membuat indeks materi (file `materi-indeks-….json` di folder LAPORAN CERMAT) dan memasang pemicu `materiJadwal` tiap jam. Periksa log: isi setiap kartu dan nomor pendampingan yang terbaca.
+4. **Deploy → Kelola deployment → pensil → Versi baru → Deploy.**
+5. Setiap kartu menyaring isi folder sesuai namanya (bahan tayang/PPT/slide, LK/lembar kerja, modul, silabus; file tanpa jenis ikut Modul; refleksi tidak tampil). Nama dengan garis bawah (`Pendampingan_01`, `Fase_1`) dikenali, `Fase 1-3` = P1–P22, kedalaman 4 tingkat, pintasan folder ikut dibaca. Fasil/admin bisa menekan **Perbarui daftar** setelah mengunggah file baru.
 
 **Catatan v3.5 (Materi tampil di dalam CERMAT, server 3.1.0) — WAJIB deploy ulang + izin baru:**
 1. Ganti seluruh isi `Code.gs`, **Simpan**.

@@ -13,7 +13,7 @@
  *   3. Deploy > New deployment > Web app (Execute as: Me, Who has access: Anyone)
  */
 
-var APP_VERSION = '3.1.0';
+var APP_VERSION = '3.2.0';
 var SCHEMA = '2.7';
 var SESSION_DAYS = 30;
 var MAX_FAIL = 5;          // salah sandi berturut-turut
@@ -569,47 +569,132 @@ function materiKartu_(user) {
   return out;
 }
 
-/* Nomor pendampingan dari teks: rentang "P1–P7" / "P1 s.d. P7", "Fase 2", atau satu nomor "P3" / "Pendampingan ke-3" */
+/* Nomor pendampingan dari teks (garis bawah dianggap spasi):
+ * rentang "P1–P7", "Pendampingan 1-7", "Fase 1-3"; "Fase 2"; satu nomor "P3", "Pendampingan_03", "03. …" (nama folder) */
 function materiNomor_(t, folder) {
-  t = String(t || '');
-  var m = t.match(/\bP(?:D)?\s*0?(\d{1,2})\s*(?:-|–|—|s\.?\s*d\.?|sampai|hingga)\s*P?\s*0?(\d{1,2})\b/i);
-  if (m) { var a = +m[1], b = +m[2]; if (a >= 1 && b <= 22 && a <= b) return [a, b]; }
+  t = String(t || '').replace(/_/g, ' ');
+  var ok = function (a, b) { return a >= 1 && b <= 22 && a <= b ? [a, b] : null; };
+  var m = t.match(/\bP(?:D)?\s*0?(\d{1,2})\s*(?:-|–|—|s\.?\s*d\.?|sampai|hingga)\s*P?\s*0?(\d{1,2})(?!\d)/i)
+    || t.match(/\b(?:pendampingan|pertemuan)\s*(?:ke\s*-?\s*)?0?(\d{1,2})\s*(?:-|–|—|s\.?\s*d\.?|sampai|hingga)\s*0?(\d{1,2})(?!\d)/i);
+  if (m && ok(+m[1], +m[2])) return ok(+m[1], +m[2]);
+  m = t.match(/\bfase\s*([1-3])\s*(?:-|–|—|s\.?\s*d\.?|sampai|hingga)\s*([1-3])(?!\d)/i);
+  if (m && +m[1] <= +m[2]) return [FASE[+m[1] - 1][0], FASE[+m[2] - 1][1]];
   m = t.match(/\bfase\s*(1|2|3|i{1,3})\b/i);
   if (m) { var f = { '1': 0, '2': 1, '3': 2, i: 0, ii: 1, iii: 2 }[m[1].toLowerCase()]; return FASE[f].slice(); }
-  m = t.match(/\b(?:pendampingan|pertemuan)\s*(?:ke\s*-?\s*)?0?(\d{1,2})\b/i) || t.match(/\bP(?:D)?\s*-?\s*0?(\d{1,2})\b/i);
-  if (!m && folder) m = t.match(/^\s*0?(\d{1,2})(?:\s*[.)_\-]|\s+[A-Za-z])/);   // subfolder "03. Numerasi …"
+  m = t.match(/\b(?:pendampingan|pertemuan)\s*(?:ke\s*-?\s*)?0?(\d{1,2})(?!\d)/i) || t.match(/\bP(?:D)?\s*-?\s*0?(\d{1,2})(?!\d)/);
+  if (!m && folder) m = t.match(/^\s*0?(\d{1,2})(?:\s*[.)\-]|\s+[A-Za-z])/);   // folder "03. Numerasi …"
   if (m) { var n = +m[1]; if (n >= 1 && n <= 22) return [n, n]; }
   return null;
 }
 
-function materiBaca_(folderId) {
-  var cache = CacheService.getScriptCache(), key = 'mat:' + folderId;
-  var c = cache.get(key);
-  if (c) return JSON.parse(c);
+/* Jenis materi dari nama kartu, file, atau folder. Urutan penting: "LK 6.1 Refleksi" = LK, "Silabus … Modul" = silabus. */
+var MATERI_KAT = [['silabus', /silabus/i], ['lk', /lembar\s*kerja|(^|[^a-z])lk([^a-z]|$)/i], ['tayang', /bahan\s*tayang|tayangan|slide|(^|[^a-z])ppt|presentasi/i],
+  ['refleksi', /refleksi/i], ['modul', /modul/i]];
+function materiKategori_(t) {
+  t = String(t || '').replace(/_/g, ' ');
+  for (var i = 0; i < MATERI_KAT.length; i++) if (MATERI_KAT[i][1].test(t)) return MATERI_KAT[i][0];
+  return '';
+}
+
+/* Indeks isi folder kartu: dibangun dari Drive (lambat), disimpan sebagai file JSON di folder LAPORAN CERMAT
+ * dan di cache (dipecah per 90 KB). Diperbarui tiap jam oleh pemicu waktu dan saat fasilitator menekan "Perbarui daftar". */
+var MATERI_MAKS = 1500;
+function materiBangun_(folderId) {
   var root;
   try { root = DriveApp.getFolderById(folderId); }
   catch (e) { throw err_('Folder materi tidak bisa dibuka server. Pastikan akun pemilik Apps Script bisa membuka folder itu.', 'MATERI'); }
-  var files = [];
+  var files = [], dilihat = {};
+  var catat = function (x, id, mime, path) {
+    var nama = x.getName();
+    var r = materiNomor_(nama, false), kat = materiKategori_(nama);
+    for (var i = path.length - 1; i >= 0; i--) {
+      if (!r) r = materiNomor_(path[i], true);
+      if (!kat) kat = materiKategori_(path[i]);
+    }
+    if (!kat && /presentation|powerpoint/.test(mime)) kat = 'tayang';
+    files.push({ id: id, nama: nama, mime: mime, ukuran: x.getSize(), diubah: x.getLastUpdated().getTime(), folder: path.join(' / '),
+      dari: r ? r[0] : null, sampai: r ? r[1] : null, kat: kat });
+  };
   var walk = function (folder, path, depth) {
+    if (dilihat[folder.getId()]) return;
+    dilihat[folder.getId()] = true;
     var it = folder.getFiles();
-    while (it.hasNext() && files.length < 400) {
+    while (it.hasNext() && files.length < MATERI_MAKS) {
       var x = it.next();
       if (x.isTrashed()) continue;
       var id = x.getId(), mime = x.getMimeType();
-      if (mime === 'application/vnd.google-apps.shortcut') { try { id = x.getTargetId(); mime = x.getTargetMimeType(); } catch (e) { continue; } }
-      var r = materiNomor_(x.getName(), false);
-      for (var i = path.length - 1; !r && i >= 0; i--) r = materiNomor_(path[i], true);
-      files.push({ id: id, nama: x.getName(), mime: mime, ukuran: x.getSize(), diubah: x.getLastUpdated().getTime(), folder: path.join(' / '),
-        dari: r ? r[0] : null, sampai: r ? r[1] : null });
+      if (mime === 'application/vnd.google-apps.shortcut') {
+        try { id = x.getTargetId(); mime = x.getTargetMimeType(); } catch (e) { continue; }
+        if (mime === 'application/vnd.google-apps.folder') {   // pintasan ke folder: dibaca seperti subfolder
+          if (depth < 4) { try { walk(DriveApp.getFolderById(id), path.concat([x.getName()]), depth + 1); } catch (e) { /* tanpa akses */ } }
+          continue;
+        }
+      }
+      catat(x, id, mime, path);
     }
-    if (depth >= 2) return;
+    if (depth >= 4) return;
     var fi = folder.getFolders();
-    while (fi.hasNext()) { var sf = fi.next(); if (!sf.isTrashed()) walk(sf, path.concat([sf.getName()]), depth + 1); }
+    while (fi.hasNext() && files.length < MATERI_MAKS) { var sf = fi.next(); if (!sf.isTrashed()) walk(sf, path.concat([sf.getName()]), depth + 1); }
   };
   walk(root, [], 0);
-  var out = { judul: root.getName(), files: files };
-  try { cache.put(key, JSON.stringify(out), 600); } catch (e) { /* lebih dari 100 KB: tanpa cache */ }
+  var out = { judul: root.getName(), files: files, dibuat: Date.now() };
+  var json = JSON.stringify(out), nama = 'materi-indeks-' + folderId + '.json';
+  var dir = rootFolder_(), ada = dir.getFilesByName(nama);
+  if (ada.hasNext()) ada.next().setContent(json); else dir.createFile(nama, json, 'application/json');
+  materiCacheTaruh_(folderId, json);
   return out;
+}
+function materiCacheTaruh_(folderId, json) {
+  var c = CacheService.getScriptCache(), UK = 90000, n = Math.ceil(json.length / UK), m = { };
+  for (var i = 0; i < n; i++) m['mat:' + folderId + ':' + i] = json.slice(i * UK, (i + 1) * UK);
+  m['mat:' + folderId] = String(n);
+  try { c.putAll(m, 21600); } catch (e) { /* cache penuh: dibaca dari file */ }
+}
+function materiBaca_(folderId) {
+  var c = CacheService.getScriptCache(), n = parseInt(c.get('mat:' + folderId) || '0', 10);
+  if (n) {
+    var keys = []; for (var i = 0; i < n; i++) keys.push('mat:' + folderId + ':' + i);
+    var got = c.getAll(keys);
+    if (keys.every(function (k) { return got[k] !== undefined && got[k] !== null; })) return JSON.parse(keys.map(function (k) { return got[k]; }).join(''));
+  }
+  var ada = rootFolder_().getFilesByName('materi-indeks-' + folderId + '.json');
+  if (ada.hasNext()) { var json = ada.next().getBlob().getDataAsString(); materiCacheTaruh_(folderId, json); return JSON.parse(json); }
+  return materiBangun_(folderId);
+}
+/* semua folder kartu (tanpa membedakan peran) */
+function materiSemuaFolder_() {
+  var ids = {};
+  materiKartu_({ peran: 'admin' }).forEach(function (k) { ids[k.id] = true; });
+  return Object.keys(ids);
+}
+/* dijalankan pemicu waktu tiap jam */
+function materiJadwal() {
+  CacheService.getScriptCache().remove('portalData');
+  materiSemuaFolder_().forEach(function (id) { try { materiBangun_(id); } catch (e) { console.warn('materi ' + id + ': ' + e.message); } });
+}
+/* Jalankan SEKALI dari editor Apps Script: membuat indeks pertama, memasang pemicu tiap jam, dan meminta izin yang dibutuhkan */
+function pasangMateri() {
+  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'materiJadwal') ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger('materiJadwal').timeBased().everyHours(1).create();
+  CacheService.getScriptCache().remove('portalData');
+  var kartu = materiKartu_({ peran: 'admin' });
+  Logger.log(kartu.length + ' kartu folder: ' + kartu.map(function (k) { return k.judul; }).join(', '));
+  var sudah = {};
+  kartu.forEach(function (k) {
+    try {
+      var d = sudah[k.id] || (sudah[k.id] = materiBangun_(k.id));
+      var kat = materiKategori_(k.judul), g = {};
+      materiSaring_(d.files, kat).forEach(function (f) { var key = f.dari === null ? 'tanpa nomor (selalu terbuka)' : 'P' + f.dari + (f.sampai !== f.dari ? '–P' + f.sampai : ''); (g[key] = g[key] || []).push(f.nama); });
+      Logger.log('== ' + k.judul + (kat ? ' [' + kat + ']' : '') + ': ' + materiSaring_(d.files, kat).length + ' dari ' + d.files.length + ' file di "' + d.judul + '"');
+      Object.keys(g).forEach(function (key) { Logger.log('   ' + key + ': ' + g[key].join(', ')); });
+    } catch (e) { Logger.log(k.judul + ': ' + e.message); }
+  });
+  Logger.log('Pemicu tiap jam terpasang (materiJadwal).');
+}
+/* isi kartu sesuai namanya; file tanpa jenis ikut kartu Modul; bila tidak ada yang cocok sama sekali, tampil semua */
+function materiSaring_(files, kat) {
+  if (!kat || !files.some(function (f) { return f.kat === kat; })) return files;
+  return files.filter(function (f) { return f.kat === kat || (kat === 'modul' && !f.kat); });
 }
 
 function materiTandai_(sid, no, tampil, user) {
@@ -629,30 +714,37 @@ function materiTerbuka_(f, nos) {
   return false;
 }
 /* daftar file folder kartu, sudah memakai rentang dari admin & status kunci untuk guru/kepsek */
-function materiSiapkan_(folderId, user) {
-  var kartu = materiKartu_(user).filter(function (k) { return k.id === folderId; })[0];
+function materiSiapkan_(folderId, user, judulKartu) {
+  // beberapa kartu boleh menautkan folder yang sama (mis. PUSTAKA CERMAT): kartu dikenali dari judulnya
+  var cocok = materiKartu_(user).filter(function (k) { return k.id === folderId; });
+  var kartu = cocok.filter(function (k) { return judulKartu && k.judul === judulKartu; })[0] || cocok[0];
   if (!kartu) throw err_('Folder ini tidak tersedia untuk akun Anda.', 'FORBIDDEN');
   var data = materiBaca_(folderId);
+  var saring = materiSaring_(data.files, materiKategori_(kartu.judul));
   var peta = {};
   rows_('MateriPeta').forEach(function (p) { peta[p.fileId] = p; });
   var sks = tesSekolahFor_(user);
   var buka = materiBukaMap_(sks.map(function (s) { return s.id; }));
   var peserta = user.peran === 'guru' || user.peran === 'kepsek';
   var nos = peserta && sks.length ? (buka[sks[0].id] || []) : [];
-  var files = data.files.map(function (f) {
+  var files = saring.map(function (f) {
     var o = {}; Object.keys(f).forEach(function (k) { o[k] = f[k]; });
     var pt = peta[f.id];
     if (pt) { o.dari = pt.dari === '' ? null : Number(pt.dari); o.sampai = pt.sampai === '' ? null : Number(pt.sampai); o.admin = true; }
     if (peserta && !materiTerbuka_(o, nos)) { o.id = ''; o.kunci = true; }
     return o;
   });
-  return { kartu: kartu.judul, judul: data.judul, files: files, buka: buka,
+  return { kartu: kartu.judul, judul: data.judul, files: files, buka: buka, dibuat: data.dibuat || 0,
     sekolah: sks.map(function (s) { return { id: s.id, nama: s.nama }; }) };
 }
 function materiList_(req, user) {
   var id = String(req.folderId || '');
-  if (req.segar && user.peran !== 'guru' && user.peran !== 'kepsek') CacheService.getScriptCache().remove('mat:' + id);
-  return materiSiapkan_(id, user);
+  if (req.segar && user.peran !== 'guru' && user.peran !== 'kepsek') {
+    materiSiapkan_(id, user, req.kartu);   // memastikan folder ini memang boleh dibuka akun ini
+    CacheService.getScriptCache().remove('portalData');
+    materiBangun_(id);
+  }
+  return materiSiapkan_(id, user, req.kartu);
 }
 function materiSet_(req, user) {
   var no = parseInt(req.no, 10);
@@ -680,7 +772,7 @@ function materiPdf_(req, user) {
   var fid = String(req.fileId || ''), part = parseInt(req.part, 10) || 0;
   var ketemu = null;
   materiKartu_(user).some(function (k) {
-    var d = materiSiapkan_(k.id, user);
+    var d = materiSiapkan_(k.id, user, k.judul);
     ketemu = d.files.filter(function (f) { return f.id && f.id === fid; })[0] || null;
     return !!ketemu;
   });
@@ -692,20 +784,8 @@ function materiPdf_(req, user) {
   return { part: part, parts: parts, ukuran: bytes.length, b64: Utilities.base64Encode(bytes.slice(part * UK, (part + 1) * UK)) };
 }
 
-/* Jalankan sekali dari editor Apps Script untuk memberi izin membaca daftar folder portal (UrlFetch) */
-function cekMateri() {
-  var kartu = materiKartu_({ peran: 'admin' });
-  Logger.log(kartu.length + ' folder kartu: ' + kartu.map(function (k) { return k.judul; }).join(', '));
-  kartu.forEach(function (k) {
-    try {
-      CacheService.getScriptCache().remove('mat:' + k.id);
-      var fs = materiBaca_(k.id).files, g = {};
-      fs.forEach(function (f) { var key = f.dari === null ? 'tanpa nomor (selalu terbuka)' : 'P' + f.dari + (f.sampai !== f.dari ? '–P' + f.sampai : ''); (g[key] = g[key] || []).push(f.nama); });
-      Logger.log('== ' + k.judul + ': ' + fs.length + ' file');
-      Object.keys(g).forEach(function (key) { Logger.log('   ' + key + ': ' + g[key].join(', ')); });
-    } catch (e) { Logger.log(k.judul + ': ' + e.message); }
-  });
-}
+/* Nama lama: tetap bisa dijalankan dari editor */
+function cekMateri() { pasangMateri(); }
 
 /* =============================================================
  * AUTENTIKASI
