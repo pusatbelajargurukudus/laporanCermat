@@ -1,4 +1,4 @@
-/* LAPORAN CERMAT v3.0.1 — antarmuka (multi-pengguna, data di Google Drive lewat Apps Script). */
+/* LAPORAN CERMAT v3.1 — antarmuka (multi-pengguna, data di Google Drive lewat Apps Script). */
 (function () {
   const R = window.Report, I = window.Importer;
   const app = document.getElementById('app');
@@ -1170,6 +1170,8 @@
     if (S.imp && S.impMode === mode) return h + impMapping(rep, s) + '</div>';
     const st = R.stats(rep);
     const uploadBtn = (label, pri) => `<label class="btn ${pri ? 'pri ' : ''}upl">${ic('upload')}${label}<input type="file" accept=".csv,.xlsx,.tsv" data-act="imp-file" data-mode="${mode}"></label>`;
+    // nilai langsung dari Google Form (tautan diisi admin di Pustaka CERMAT → Pretes & Postes)
+    const formBtn = (label, pri) => `<button class="btn ${pri ? 'pri' : ''}" data-act="imp-form" data-mode="${mode}"${S.impForm ? ' disabled' : ''}>${S.impForm ? '<span class="spin"></span>' : ic('download')}${S.impForm ? 'Mengambil jawaban…' : label}</button>`;
     const rowsTable = jenis => `<details class="adv"><summary>Lihat nilai ${jenis === 'pre' ? 'pretes' : 'postes'} per peserta</summary>
       <table class="simple"><tbody>${rep.tes.rows.filter(r => r.jenis === jenis).sort((a, b) => a.nama.localeCompare(b.nama)).map(r => `<tr><td>${esc(r.nama)}</td><td style="width:90px;text-align:right">${R.fmt(r.skor)}</td></tr>`).join('')}</tbody></table></details>`;
     if (mode === 'pre') {
@@ -1177,12 +1179,13 @@
         h += `<div class="stats"><div class="stat"><b>${R.fmt(st.pre)}</b><span>rata-rata pretes · ${st.preN} peserta</span></div></div>
           <div class="banner ${st.postN ? 'ok' : 'info'} small" style="margin-top:12px">${ic(st.postN ? 'check' : 'info')}<div>${st.postN ? `Postes juga sudah terbaca dari file yang sama (<b>${st.postN}</b> peserta) — tampil di langkah 3.` : 'Postes belum ada di file ini. Di langkah 3 Anda bisa mengunggah file terbaru setelah postes dikerjakan.'}</div></div>
           ${rowsTable('pre')}
-          <div class="row ro-hide" style="margin-top:12px">${uploadBtn('Unggah ulang file')}<button class="btn danger" data-act="tes-del">${ic('trash')}Hapus data nilai</button></div>`;
+          <div class="row ro-hide" style="margin-top:12px">${formBtn('Perbarui dari Google Form')}${uploadBtn('Unggah ulang file')}<button class="btn danger" data-act="tes-del">${ic('trash')}Hapus data nilai</button></div>`;
         return h + '</div>';
       }
       if (readOnly) return h + '<p class="muted" style="margin:0">Pretes belum diunggah.</p></div>';
-      h += `<p style="margin-top:-4px">Unggah file respons Google Form — <b>pretes dan postes boleh dalam satu file</b>, berisi semua sekolah. Aplikasi otomatis menyaring baris <b>${esc(s.nama)}</b> dan memisahkan pretes & postes.</p>
-        <div class="row">${uploadBtn('Pilih file .csv / .xlsx', true)}<span class="small muted">Google Form → Respons → Lihat di Spreadsheet → File → Download</span></div>
+      h += `<p style="margin-top:-4px">Ambil jawaban <b>langsung dari Google Form</b> pendampingan ini, atau unggah file respons. Pretes dan postes boleh dalam satu form/file berisi semua sekolah; aplikasi otomatis menyaring baris <b>${esc(s.nama)}</b> dan memisahkan pretes & postes.</p>
+        <div class="row">${formBtn('Ambil nilai dari Google Form', true)}${uploadBtn('Pilih file .csv / .xlsx')}</div>
+        <p class="small muted" style="margin:8px 0 0">File: Google Form → Respons → Lihat di Spreadsheet → File → Download.</p>
         <details class="adv"><summary>Kolom yang dibutuhkan di Google Form</summary>
         <ul class="small"><li><b>Nama</b> peserta</li><li><b>Asal Sekolah</b> — sebaiknya pilihan dropdown</li>
         <li><b>Jenis Tes</b> — pilihan “Pre-tes” / “Post-tes”</li><li><b>Skor</b> — otomatis bila form diatur sebagai Kuis (mis. “8 / 11” → 72,73)</li>
@@ -1198,14 +1201,14 @@
         h += `<div class="banner warn small" style="margin-top:12px">${ic('alert')}<div>${st.onlyPre.length ? `<b>Hanya ikut pretes:</b> ${esc(st.onlyPre.join(', '))}. ` : ''}${st.onlyPost.length ? `<b>Hanya ikut postes:</b> ${esc(st.onlyPost.join(', '))}.` : ''}
           Rata-rata tiap tes dihitung dari semua yang mengerjakannya. Catatan ini tidak masuk ke PDF.</div></div>`;
       }
-      h += rowsTable('post') + `<div class="row ro-hide" style="margin-top:12px">${uploadBtn('Unggah file terbaru')}</div>`;
+      h += rowsTable('post') + `<div class="row ro-hide" style="margin-top:12px">${formBtn('Perbarui dari Google Form')}${uploadBtn('Unggah file terbaru')}</div>`;
       return h + '</div>';
     }
     if (readOnly) return h + '<p class="muted" style="margin:0">Postes belum ada.</p></div>';
     h += st && st.preN
       ? `<div class="banner warn small">${ic('alert')}<div>Postes belum ada di file yang diunggah di langkah 2. Setelah peserta mengerjakan postes, unduh ulang respons Google Form lalu unggah di sini — pretes yang sudah ada ikut diperbarui.</div></div>`
       : `<div class="banner info small">${ic('info')}<div>Belum ada file nilai. Unggah file Google Form (pretes + postes) di sini atau di langkah 2.</div></div>`;
-    return h + `<div class="row">${uploadBtn('Pilih file .csv / .xlsx', true)}</div></div>`;
+    return h + `<div class="row">${formBtn('Ambil nilai dari Google Form', true)}${uploadBtn('Pilih file .csv / .xlsx')}</div></div>`;
   }
 
   function impMapping(rep, s) {
@@ -1467,6 +1470,24 @@
       S.imp = imp;
       rerenderStep();
     } catch (e) { console.error(e); toast(e.message || 'File tidak bisa dibaca.', true, 5000); }
+  }
+  async function importForm(mode) {
+    if (S.impForm) return;
+    const rep = S.cur;
+    if (!navigator.onLine) return toast('Butuh internet untuk mengambil jawaban Google Form.', true);
+    S.impForm = true; rerenderStep();
+    try {
+      const d = await API.call('tesResponses', { sekolahId: rep.sekolahId, no: rep.no });
+      if (!d.rows || d.rows.length < 2) { toast('Form "' + (d.judul || 'P' + rep.no) + '" belum punya jawaban.', true, 5000); return; }
+      S.impMode = mode || 'pre';
+      const an = I.analyze(d.rows);
+      const imp = { an, fileName: 'Google Form: ' + (d.judul || 'P' + rep.no), cols: Object.assign({}, an.cols), schools: new Set() };
+      autoSchools(imp, school(rep.sekolahId));
+      S.imp = imp;
+      if (!d.quiz) toast('Form belum diatur sebagai Kuis, jadi kolom skor tidak ada. Pilih kolom nilai secara manual atau atur form sebagai Kuis.', true, 7000);
+    } catch (e) {
+      toast(e.code === 'NOFORM' ? 'Tautan Google Form P' + rep.no + ' belum diisi admin. Gunakan unggah file .csv / .xlsx.' : (e.message || 'Gagal mengambil jawaban.'), true, 6000);
+    } finally { S.impForm = false; rerenderStep(); }
   }
   function autoSchools(imp, s) {
     imp.schools = new Set();
@@ -1974,7 +1995,7 @@
   /* =========================================================
    * EVENT
    * ========================================================= */
-  const EDIT_ACTS = new Set(['tempat-sekolah', 'hadir', 'hadir-all', 'hadir-none', 'add-peserta', 'imp-cancel', 'imp-apply', 'tes-del', 'akt-toggle', 'akt-del', 'akt-add', 'keg-reset', 'cap', 'obs-add', 'obs-del', 'teks-reset', 'chip', 'lamp-toggle', 'img-del', 'del-report', 'conf-server', 'conf-mine', 'fh', 'cal', 'cal-nav', 'cal-day', 'rw-inc', 'rw-dec', 'rw-fill0']);
+  const EDIT_ACTS = new Set(['imp-form', 'tempat-sekolah', 'hadir', 'hadir-all', 'hadir-none', 'add-peserta', 'imp-cancel', 'imp-apply', 'tes-del', 'akt-toggle', 'akt-del', 'akt-add', 'keg-reset', 'cap', 'obs-add', 'obs-del', 'teks-reset', 'chip', 'lamp-toggle', 'img-del', 'del-report', 'conf-server', 'conf-mine', 'fh', 'cal', 'cal-nav', 'cal-day', 'rw-inc', 'rw-dec', 'rw-fill0']);
 
   app.addEventListener('click', async e => {
     const row = e.target.closest('tr[data-href]');
@@ -2134,6 +2155,7 @@
       }
       case 'imp-cancel': S.imp = null; rerenderStep(); break;
       case 'imp-apply': applyImport(); break;
+      case 'imp-form': importForm(b.dataset.mode); break;
       case 'tes-del': if (confirm('Hapus data nilai pretes/postes laporan ini?')) { rep.tes = null; touch(); rerenderStep(); } break;
       case 'akt-toggle': { const k = editKeg(); k[b.dataset.si].aktivitas[b.dataset.ai].aktif = b.checked; b.closest('.akt').classList.toggle('off', !b.checked); touch(); break; }
       case 'akt-del': { const k = editKeg(); k[b.dataset.si].aktivitas.splice(b.dataset.ai, 1); touch(); rerenderStep(); break; }

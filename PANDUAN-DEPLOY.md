@@ -1,4 +1,4 @@
-# Panduan Pemasangan LAPORAN CERMAT v3.0.1
+# Panduan Pemasangan LAPORAN CERMAT v3.1
 
 Aplikasi terdiri dari dua bagian:
 
@@ -98,6 +98,13 @@ Pemasangan cukup **sekali**, sekitar 15 menit.
 4. Buka aplikasi dan tekan **Ctrl+Shift+R** sekali.
 
 Data lama tetap aman. Kolom baru di Sheets ditambahkan otomatis.
+
+**Catatan v3.1 (Pretes & Postes, server 2.9.0) — WAJIB deploy ulang Apps Script:**
+1. Ganti seluruh isi `Code.gs` di editor Apps Script dengan `apps-script/Code.gs` versi ini, lalu **Simpan**.
+2. **Deploy → Kelola deployment → ikon pensil → Versi: Versi baru → Deploy.** URL web app tetap sama.
+3. Google meminta izin baru (**melihat & mengelola Google Formulir**). Pilih akun pemilik → Lanjutan → Buka (tidak aman) → **Izinkan**. Ini wajar karena skrip milik Anda sendiri.
+4. Jadikan akun pemilik Apps Script **editor** setiap Google Form pretes/postes P1–P7, lalu tempel tautan edit form di Pustaka CERMAT → Pretes & Postes → Atur tautan.
+Lembar `TesTautan` dan `TesBuka` dibuat otomatis di Database CERMAT saat permintaan pertama.
 
 **Catatan v3.0.1:** admin dan pemantau membuka laporan sebagai pratinjau PDF (seperti kepala sekolah). Admin tetap punya tombol *Buka isian laporan (darurat)*. `Code.gs` tidak berubah.
 
