@@ -13,7 +13,7 @@
  *   3. Deploy > New deployment > Web app (Execute as: Me, Who has access: Anyone)
  */
 
-var APP_VERSION = '2.9.3';
+var APP_VERSION = '3.0.0';
 var SCHEMA = '2.6';
 var SESSION_DAYS = 30;
 var MAX_FAIL = 5;          // salah sandi berturut-turut
@@ -24,6 +24,10 @@ var ROLES = ['admin', 'fasilitator', 'pemantau', 'kepsek', 'guru'];
 var GURU_ACTIONS = ['bootstrap', 'me', 'logout', 'tesList'];
 /* Pendampingan yang memakai pretes & postes (satu Google Form per pendampingan). */
 var TES_NO = [1, 2, 3, 4, 5, 6, 7];
+var REF_NO = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22];   // refleksi: satu form per pendampingan
+/* Kunci baris TesTautan: pretes/postes "3", refleksi "R3" */
+function tesKunci_(no, ref) { return (ref ? 'R' : '') + no; }
+function tesLabel_(kunci) { kunci = String(kunci); return kunci.charAt(0) === 'R' ? 'refleksi P' + kunci.slice(1) : 'P' + kunci; }
 var PROGRAM_KEYS = ['program', 'programKepanjangan', 'penyelenggara', 'kota', 'kopId'];
 
 var SHEETS = {
@@ -178,7 +182,7 @@ function tesFormId_(url) {
 
 function tesOpenForm_(row) {
   try { return FormApp.openById(row.formId); }
-  catch (x) { throw err_('Form P' + row.no + ' tidak bisa dibuka server. Pastikan akun pemilik Apps Script adalah editor form tersebut.', 'FORM'); }
+  catch (x) { throw err_('Form ' + tesLabel_(row.no) + ' tidak bisa dibuka server. Pastikan akun pemilik Apps Script adalah editor form tersebut.', 'FORM'); }
 }
 
 /* entry.N dari tautan isian-awal yang dibuat Google untuk satu jawaban item */
@@ -198,10 +202,11 @@ function tesChoiceItem_(item) {
 }
 
 /* Baca struktur form: tautan isian, pertanyaan Jenis tes & Asal sekolah */
-function tesInspect_(no, editUrl) {
+function tesInspect_(no, editUrl, ref) {
   var formId = tesFormId_(editUrl);
-  if (!formId) throw err_('P' + no + ': tempel tautan EDIT form (…/forms/d/…/edit), bukan tautan untuk peserta.', 'BAD');
-  var row = { no: String(no), editUrl: String(editUrl).trim(), formId: formId };
+  var kunci = tesKunci_(no, ref);
+  if (!formId) throw err_(tesLabel_(kunci).replace(/^r/, 'R') + ': tempel tautan EDIT form (…/forms/d/…/edit), bukan tautan untuk peserta.', 'BAD');
+  var row = { no: kunci, editUrl: String(editUrl).trim(), formId: formId };
   var form = tesOpenForm_(row);
   var cat = [];
   row.pubUrl = form.getPublishedUrl();
@@ -213,7 +218,8 @@ function tesInspect_(no, editUrl) {
     if (!sek && /asal\s*sekolah|nama\s*sekolah|^sekolah|instansi|satuan pendidikan/.test(t)) sek = it;
   });
   row.entJenis = ''; row.optPre = ''; row.optPost = ''; row.entSekolah = ''; row.opsiSekolah = '';
-  if (jenis) {
+  if (ref) { /* refleksi: tanpa pertanyaan jenis tes & tanpa kuis */ }
+  else if (jenis) {
     var ci = tesChoiceItem_(jenis);
     var vals = ci.getChoices().map(function (c) { return c.getValue(); });
     var pre = vals.filter(function (v) { return /pre|pra|awal/i.test(v); })[0];
@@ -238,7 +244,7 @@ function tesInspect_(no, editUrl) {
   var io = tesIsianOrang_(form, items);
   Object.keys(io).forEach(function (k) { row[k] = io[k]; });
   if (row.entNama === '-') cat.push('Pertanyaan "Nama" (jawaban singkat) tidak ditemukan; nama peserta tidak bisa diisi otomatis.');
-  if (!form.isQuiz()) cat.push('Form belum diatur sebagai Kuis, jadi skor tidak terbaca otomatis.');
+  if (!ref && !form.isQuiz()) cat.push('Form belum diatur sebagai Kuis, jadi skor tidak terbaca otomatis.');
   if (!form.isAcceptingResponses()) cat.push('Form sedang tidak menerima respons (bisa diubah di Google Form).');
   row.catatan = cat.join(' ');
   return row;
@@ -269,11 +275,11 @@ function tesIsianOrang_(form, items) {
 
 /* Tautan yang disimpan sebelum v3.3 belum punya isian nama: dibaca sekali dari form lalu disimpan */
 function tesLengkapiNama_(links) {
-  var perlu = TES_NO.filter(function (no) { var L = links[String(no)]; return L && L.formId && !L.entNama; });
+  var perlu = Object.keys(links).filter(function (k) { var L = links[k]; return L && L.formId && !L.entNama; });
   if (!perlu.length) return links;
   var isi = {};
   perlu.forEach(function (no) {
-    var L = links[String(no)];
+    var L = links[no];
     try { var f = tesOpenForm_(L); isi[no] = tesIsianOrang_(f, f.getItems()); }
     catch (e) { /* form belum bisa dibuka: dicoba lagi lain kali */ }
   });
@@ -309,21 +315,29 @@ function tesList_(req, user) {
   sks.forEach(function (s) { ids[s.id] = true; });
   var buka = rows_('TesBuka').filter(function (b) { return ids[b.sekolahId] && tesAktif_(b); });
   var staff = user.peran === 'admin' || user.peran === 'fasilitator';
-  var tes = TES_NO.map(function (no) {
-    var L = links[String(no)] || {};
+  var isian = function (L) {
+    return { url: L.pubUrl, entSekolah: L.entSekolah, opsiSekolah: L.opsiSekolah ? L.opsiSekolah.split('|') : [],
+      entNama: L.entNama && L.entNama !== '-' ? L.entNama : '', entJabatan: L.entJabatan || '', opsiJabatan: L.opsiJabatan ? L.opsiJabatan.split('|') : [] };
+  };
+  var tes = REF_NO.map(function (no) {
+    var L = TES_NO.indexOf(no) >= 0 ? (links[String(no)] || {}) : {};
+    var R = links[tesKunci_(no, true)] || {};
     var st = {};
     buka.filter(function (b) { return String(b.no) === String(no); }).forEach(function (b) {
       st[b.sekolahId] = st[b.sekolahId] || {};
       st[b.sekolahId][b.jenis] = { sampai: b.sampai, oleh: b.oleh, waktu: b.waktu };
     });
-    var open = Object.keys(st).length > 0;
-    var o = { no: no, ada: !!L.pubUrl, status: st };
-    // tautan isian: staf selalu; guru & kepala sekolah hanya saat tes dibuka untuk sekolahnya
-    if (L.pubUrl && (staff || ((user.peran === 'guru' || user.peran === 'kepsek') && open))) {
-      o.url = L.pubUrl; o.entJenis = L.entJenis; o.optPre = L.optPre; o.optPost = L.optPost;
-      o.entSekolah = L.entSekolah; o.opsiSekolah = L.opsiSekolah ? L.opsiSekolah.split('|') : [];
-      o.entNama = L.entNama && L.entNama !== '-' ? L.entNama : ''; o.entJabatan = L.entJabatan || ''; o.opsiJabatan = L.opsiJabatan ? L.opsiJabatan.split('|') : [];
+    var bukaTes = Object.keys(st).some(function (sid) { return st[sid].pre || st[sid].post; });
+    var bukaRef = Object.keys(st).some(function (sid) { return st[sid].ref; });
+    var peserta = user.peran === 'guru' || user.peran === 'kepsek';
+    var o = { no: no, ada: !!L.pubUrl, status: st, ref: { ada: !!R.pubUrl } };
+    // tautan isian: staf selalu; guru & kepala sekolah hanya saat dibuka untuk sekolahnya
+    if (L.pubUrl && (staff || (peserta && bukaTes))) {
+      var a = isian(L);
+      Object.keys(a).forEach(function (k) { o[k] = a[k]; });
+      o.entJenis = L.entJenis; o.optPre = L.optPre; o.optPost = L.optPost;
     }
+    if (R.pubUrl && (staff || (peserta && bukaRef))) { var b = isian(R); b.ada = true; o.ref = b; }
     return o;
   });
   // guru & kepala sekolah: daftar guru sekolahnya untuk "Pilih nama Anda" (nama + jabatan saja)
@@ -348,11 +362,12 @@ function tesAkhirHari_() {
 }
 
 function tesSet_(req, user) {
-  var no = parseInt(req.no, 10), jenis = req.jenis === 'post' ? 'post' : (req.jenis === 'pre' ? 'pre' : '');
-  if (TES_NO.indexOf(no) < 0 || !jenis) throw err_('Data tes tidak valid.', 'BAD');
+  var no = parseInt(req.no, 10), jenis = ['pre', 'post', 'ref'].indexOf(req.jenis) >= 0 ? req.jenis : '';
+  if (!jenis || (jenis === 'ref' ? REF_NO : TES_NO).indexOf(no) < 0) throw err_('Data tes tidak valid.', 'BAD');
   var sk = sekolahById_(String(req.sekolahId || ''));
   if (!(user.peran === 'admin' || canFill_(user, sk))) throw err_('Hanya fasilitator sekolah ini yang bisa membuka atau menutup tes.', 'FORBIDDEN');
-  if (req.buka && !(tesRowsByNo_()[String(no)] || {}).pubUrl) throw err_('Tautan Google Form P' + no + ' belum diisi admin.', 'BAD');
+  var links = tesRowsByNo_();
+  if (req.buka && !(links[tesKunci_(no, jenis === 'ref')] || {}).pubUrl) throw err_('Tautan Google Form ' + tesLabel_(tesKunci_(no, jenis === 'ref')) + ' belum diisi admin.', 'BAD');
   return lock_(function () {
     var ada = rows_('TesBuka').filter(function (b) { return b.sekolahId === sk.id && String(b.no) === String(no) && b.jenis === jenis; })[0];
     var patch = req.buka
@@ -361,9 +376,15 @@ function tesSet_(req, user) {
     if (ada) update_('TesBuka', ada._row, patch);
     else if (req.buka) insert_('TesBuka', patch);
     // membuka postes otomatis menutup pretes sekolah itu (satu form dipakai untuk keduanya)
+    // dan membuka refleksi pendampingan itu (bila tautannya sudah diisi admin)
     if (req.buka && jenis === 'post') {
       var pre = rows_('TesBuka').filter(function (b) { return b.sekolahId === sk.id && String(b.no) === String(no) && b.jenis === 'pre' && tesAktif_(b); })[0];
       if (pre) update_('TesBuka', pre._row, { aktif: 'tidak', sampai: now_(), oleh: user.nama, waktu: now_() });
+      if ((links[tesKunci_(no, true)] || {}).pubUrl) {
+        var rf = rows_('TesBuka').filter(function (b) { return b.sekolahId === sk.id && String(b.no) === String(no) && b.jenis === 'ref'; })[0];
+        var pr = { sekolahId: sk.id, no: String(no), jenis: 'ref', aktif: 'ya', sampai: tesAkhirHari_(), oleh: user.nama, waktu: now_() };
+        if (rf) update_('TesBuka', rf._row, pr); else insert_('TesBuka', pr);
+      }
     }
     log_(user.username, req.buka ? 'tesBuka' : 'tesTutup', sk.nama + ' P' + no + ' ' + jenis);
     return tesList_({}, user);
@@ -372,24 +393,27 @@ function tesSet_(req, user) {
 
 function tesLinks_() {
   var links = tesRowsByNo_();
-  return TES_NO.map(function (no) {
-    var L = links[String(no)] || {};
-    return { no: no, editUrl: L.editUrl || '', pubUrl: L.pubUrl || '', catatan: L.catatan || '', diubah: L.diubah || '', oleh: L.oleh || '' };
-  });
+  var out = function (no, ref) {
+    var L = links[tesKunci_(no, ref)] || {};
+    return { no: no, ref: !!ref, editUrl: L.editUrl || '', pubUrl: L.pubUrl || '', catatan: L.catatan || '', diubah: L.diubah || '', oleh: L.oleh || '' };
+  };
+  return TES_NO.map(function (no) { return out(no, false); }).concat(REF_NO.map(function (no) { return out(no, true); }));
 }
 
 function tesSaveLinks_(req, user) {
   var list = Array.isArray(req.links) ? req.links : [];
   var hasil = [], gagal = [];
   var siap = {};
+  var semua = tesRowsByNo_();
   list.forEach(function (x) {
-    var no = parseInt(x.no, 10);
-    if (TES_NO.indexOf(no) < 0) return;
+    var no = parseInt(x.no, 10), ref = !!x.ref;
+    if ((ref ? REF_NO : TES_NO).indexOf(no) < 0) return;
+    var kunci = tesKunci_(no, ref);
     var url = String(x.editUrl || '').trim();
-    var lama = tesRowsByNo_()[String(no)];
-    if (!url) { siap[no] = null; return; }
+    var lama = semua[kunci];
+    if (!url) { if (lama) siap[kunci] = null; return; }
     if (lama && lama.editUrl === url && lama.pubUrl && !x.periksa) return;   // tidak berubah
-    try { siap[no] = tesInspect_(no, url); }
+    try { siap[kunci] = tesInspect_(no, url, ref); }
     catch (e) { gagal.push(e.message); }
   });
   lock_(function () {
@@ -401,7 +425,7 @@ function tesSaveLinks_(req, user) {
       if (lama) update_('TesTautan', lama._row, r); else insert_('TesTautan', r);
     });
   });
-  if (Object.keys(siap).length) log_(user.username, 'tesTautan', Object.keys(siap).map(function (n) { return 'P' + n; }).join(', '));
+  if (Object.keys(siap).length) log_(user.username, 'tesTautan', Object.keys(siap).map(tesLabel_).join(', '));
   return { links: tesLinks_(), gagal: gagal };
 }
 
@@ -413,24 +437,27 @@ function tesResponses_(req, user) {
     var sk = sekolahById_(String(req.sekolahId || ''));
     if (!canFill_(user, sk)) throw err_('Hanya fasilitator sekolah ini yang bisa mengambil nilai.', 'FORBIDDEN');
   }
-  var L = tesRowsByNo_()[String(no)];
-  if (!L || !L.formId) throw err_('Tautan Google Form P' + no + ' belum diisi admin. Gunakan unggah file .csv / .xlsx.', 'NOFORM');
+  var ref = req.jenis === 'ref';
+  var L = tesRowsByNo_()[tesKunci_(no, ref)];
+  if (!L || !L.formId) throw err_('Tautan Google Form ' + tesLabel_(tesKunci_(no, ref)) + ' belum diisi admin.' + (ref ? '' : ' Gunakan unggah file .csv / .xlsx.'), 'NOFORM');
   var form = tesOpenForm_(L);
   var skip = [FormApp.ItemType.SECTION_HEADER, FormApp.ItemType.PAGE_BREAK, FormApp.ItemType.IMAGE, FormApp.ItemType.VIDEO];
   var items = form.getItems().filter(function (it) { return skip.indexOf(it.getType()) < 0; });
-  var quiz = form.isQuiz();
+  var quiz = !ref && form.isQuiz();
   var maks = 0;
   if (quiz) items.forEach(function (it) { try { var p = tesPoints_(it); if (p) maks += p; } catch (x) { /* item tanpa poin */ } });
   var header = ['Timestamp'].concat(items.map(function (it) { return it.getTitle(); }));
   if (quiz) header.push('Skor');
   var tz = Session.getScriptTimeZone();
-  var rows = [header];
+  var rows = [header], jawab = [];
   form.getResponses().forEach(function (r) {
-    var by = {};
+    var by = {}, raw = {};
     r.getItemResponses().forEach(function (ir) {
       var v = ir.getResponse();
-      by[ir.getItem().getId()] = Array.isArray(v) ? v.join(', ') : String(v === null || v === undefined ? '' : v);
+      raw[ir.getItem().getId()] = v;
+      by[ir.getItem().getId()] = Array.isArray(v) ? v.map(function (x) { return Array.isArray(x) ? x.join('/') : x; }).join(', ') : String(v === null || v === undefined ? '' : v);
     });
+    if (ref) jawab.push(items.map(function (it) { var v = raw[it.getId()]; return v === undefined ? null : v; }));
     var row = [Utilities.formatDate(r.getTimestamp(), tz, 'yyyy-MM-dd HH:mm:ss')].concat(items.map(function (it) { return by[it.getId()] || ''; }));
     if (quiz) {
       var skor = 0;
@@ -445,7 +472,27 @@ function tesResponses_(req, user) {
   var peserta = rows_('Peserta').filter(function (p) { return boleh[p.sekolahId]; }).map(function (p) {
     return { id: p.id, sekolahId: p.sekolahId, nama: p.nama, alias: p.alias ? p.alias.split('|') : [] };
   });
-  return { rows: rows, judul: form.getTitle(), jumlah: rows.length - 1, quiz: quiz, peserta: peserta };
+  var out = { rows: rows, judul: form.getTitle(), jumlah: rows.length - 1, quiz: quiz, peserta: peserta };
+  // refleksi: jenis tiap pertanyaan & jawaban asli (untuk rangkuman analisis di laporan)
+  if (ref) { out.items = items.map(tesItemInfo_); out.jawab = jawab; }
+  return out;
+}
+
+function tesItemInfo_(it) {
+  var T = FormApp.ItemType, t = it.getType();
+  var o = { judul: it.getTitle(), jenis: String(t) };
+  try {
+    if (t === T.SCALE) { var sc = it.asScaleItem(); o.jenis = 'SCALE'; o.min = sc.getLowerBound(); o.max = sc.getUpperBound(); o.minLabel = sc.getLeftLabel(); o.maxLabel = sc.getRightLabel(); }
+    else if (t === T.MULTIPLE_CHOICE) { o.jenis = 'MC'; o.pilihan = it.asMultipleChoiceItem().getChoices().map(function (c) { return c.getValue(); }); }
+    else if (t === T.LIST) { o.jenis = 'MC'; o.pilihan = it.asListItem().getChoices().map(function (c) { return c.getValue(); }); }
+    else if (t === T.CHECKBOX) { o.jenis = 'CB'; o.pilihan = it.asCheckboxItem().getChoices().map(function (c) { return c.getValue(); }); }
+    else if (t === T.GRID) { var g = it.asGridItem(); o.jenis = 'GRID'; o.baris = g.getRows(); o.kolom = g.getColumns(); }
+    else if (t === T.CHECKBOX_GRID) { var cg = it.asCheckboxGridItem(); o.jenis = 'CGRID'; o.baris = cg.getRows(); o.kolom = cg.getColumns(); }
+    else if (t === T.TEXT) o.jenis = 'TEXT';
+    else if (t === T.PARAGRAPH_TEXT) o.jenis = 'PARA';
+    else o.jenis = 'LAIN';
+  } catch (e) { o.jenis = 'LAIN'; }
+  return o;
 }
 
 function tesPoints_(it) {
@@ -616,6 +663,7 @@ function bootstrap_(req, user) {
     pengguna: rows_('Pengguna').map(publicUser_),
     // pendampingan yang sudah punya tautan Google Form (tombol unggah CSV jadi cadangan)
     tesForm: (function () { var L = tesRowsByNo_(); return TES_NO.filter(function (no) { return L[String(no)] && L[String(no)].formId; }); })(),
+    refForm: (function () { var L = tesRowsByNo_(); return REF_NO.filter(function (no) { return L[tesKunci_(no, true)] && L[tesKunci_(no, true)].formId; }); })(),
     rekap: rekapList_(user),
     pengesahan: sahList_(user)
   };

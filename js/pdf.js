@@ -455,6 +455,17 @@
       ], [[R.fmt(st.pre) + ' (n=' + st.preN + ')', R.fmt(st.post) + ' (n=' + st.postN + ')', R.fmt(st.selisih), st.persen === null ? '-' : R.fmt(st.persen) + '%']], { size: 10 });
     }
 
+    // Refleksi peserta (dari Google Form refleksi): kesimpulan + rekap per pertanyaan
+    const rf = rep.refleksi;
+    if (rf && rf.n) {
+      w.h1(++n, 'Refleksi Peserta');
+      w.para((rf.kesimpulan || rf.kesAuto || '').trim() || '-', { first: 28 });
+      if ((rf.items || []).length && window.Importer && window.Importer.refRingkas) {
+        w.table([{ t: 'Pertanyaan refleksi', w: 0.42 }, { t: 'Rangkuman jawaban', w: 0.58 }],
+          rf.items.map(o => [o.judul, window.Importer.refRingkas(o)]), { size: 9.5 });
+      }
+    }
+
     w.h1(++n, 'Evaluasi');
     w.h2('a', 'Permasalahan yang ditemui');
     w.para(rep.permasalahan || '-', { x: IND + 16, first: 0 });

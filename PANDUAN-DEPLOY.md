@@ -1,4 +1,4 @@
-# Panduan Pemasangan LAPORAN CERMAT v3.3
+# Panduan Pemasangan LAPORAN CERMAT v3.4
 
 Aplikasi terdiri dari dua bagian:
 
@@ -98,6 +98,13 @@ Pemasangan cukup **sekali**, sekitar 15 menit.
 4. Buka aplikasi dan tekan **Ctrl+Shift+R** sekali.
 
 Data lama tetap aman. Kolom baru di Sheets ditambahkan otomatis.
+
+**Catatan v3.4 (Refleksi lewat Google Form, server 3.0.0) — WAJIB deploy ulang Apps Script:**
+1. Ganti seluruh isi `Code.gs`, **Simpan**, lalu **Deploy → Kelola deployment → pensil → Versi baru → Deploy**. Tidak ada izin baru.
+2. Siapkan satu Google Form refleksi per pendampingan, berisi pertanyaan **Nama** (jawaban singkat) dan **Asal sekolah**. Tidak perlu Kuis. Jadikan akun pemilik Apps Script editor form, lalu tempel tautan edit di Pustaka CERMAT → Pretes, Postes & Refleksi → Atur tautan → bagian Refleksi.
+3. Tautan refleksi disimpan di lembar `TesTautan` dengan nomor `R1`–`R22`; status buka di `TesBuka` dengan jenis `ref`. Tidak ada kolom baru.
+4. Fasilitator: membuka postes ikut membuka refleksi; P8–P22 membuka refleksi sendiri. Guru: tombol Isi Refleksi, dan tawaran "Isi refleksi sekarang" setelah kembali dari form postes.
+5. Laporan → langkah Lampiran → **Ambil refleksi dari Google Form**: rangkuman analisis otomatis (skala, pilihan, kotak centang, petak, jawaban terbuka) dan kesimpulan yang bisa diedit, tercetak di bagian *Refleksi Peserta*. Pengisi refleksi dicentang hadir.
 
 **Catatan v3.3 (Nama terisi otomatis di form, server 2.9.3) — WAJIB deploy ulang Apps Script:**
 1. Ganti seluruh isi `Code.gs`, **Simpan**, lalu **Deploy → Kelola deployment → pensil → Versi baru → Deploy**. Tidak ada izin baru.

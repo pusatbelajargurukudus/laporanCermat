@@ -258,5 +258,127 @@
     return { rows: Array.from(out.values()), skipped };
   };
 
+  /* =========================================================
+   * REFLEKSI: rangkuman analisis otomatis dari jawaban Google Form
+   * items: [{judul, jenis: SCALE|MC|CB|GRID|CGRID|TEXT|PARA|LAIN, ...}], jawab: [[jawaban per item]] (satu baris per peserta)
+   * ========================================================= */
+  const STOP = new Set(('yang dan di ke dari untuk dengan pada ini itu dalam adalah akan saya kami kita mereka anda ada atau juga lebih ' +
+    'tidak belum sudah bisa dapat agar karena oleh sebagai secara serta para tersebut hal cara bagi jadi masih lagi saat harus perlu sehingga ' +
+    'namun tetapi supaya seperti yaitu yakni bahwa setiap semua sendiri dia ia kalau jika maka pun lah kah nya dll dsb mau hari lalu kemudian ' +
+    'telah sedang tentang antara banyak hanya mungkin ketika begitu sangat cukup sama apa bagaimana kenapa mengapa siapa kapan dimana tsb ' +
+    'yg dgn utk tdk sy kmi akan oleh pak bu ibu bapak murid siswa anak guru kelas pembelajaran belajar membuat menjadi memakai melakukan menggunakan').split(' '));
+  const pct = (a, b) => b ? Math.round(a * 100 / b) : 0;
+  const num1 = v => Number(v).toLocaleString('id-ID', { maximumFractionDigits: 1 });
+  const potong = (t, n) => { t = String(t || '').replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1).replace(/\s+\S*$/, '') + '…' : t; };
+  const daftarKata = arr => arr.length <= 1 ? arr.join('') : arr.slice(0, -1).join(', ') + ' dan ' + arr[arr.length - 1];
+  const kosong = v => v === null || v === undefined || (Array.isArray(v) ? !v.filter(x => String(x || '').trim()).length : !String(v).trim());
+
+  function kataKunci(teks) {
+    const docs = teks.map(t => String(t).toLowerCase().replace(/[^a-z0-9À-ɏ\s-]/g, ' ').split(/\s+/).filter(Boolean));
+    const df = new Map(), df2 = new Map();
+    docs.forEach(tk => {
+      const u = new Set(), b = new Set();
+      tk.forEach((w, i) => {
+        if (w.length >= 3 && !STOP.has(w) && !/^\d+$/.test(w)) u.add(w);
+        const w2 = tk[i + 1];
+        if (w2 && w.length >= 3 && w2.length >= 3 && !STOP.has(w) && !STOP.has(w2)) b.add(w + ' ' + w2);
+      });
+      u.forEach(w => df.set(w, (df.get(w) || 0) + 1));
+      b.forEach(w => df2.set(w, (df2.get(w) || 0) + 1));
+    });
+    const min = teks.length >= 4 ? 2 : 1;
+    const bi = [...df2].filter(([, n]) => n >= min).sort((a, b) => b[1] - a[1]).slice(0, 3);
+    const dipakai = new Set(bi.flatMap(([w]) => w.split(' ')));
+    const uni = [...df].filter(([w, n]) => n >= min && !dipakai.has(w)).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    return bi.concat(uni).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([t, n]) => ({ t, n }));
+  }
+  function contoh(teks, kata) {
+    const k = kata.map(x => x.t);
+    return teks.map(t => String(t).replace(/\s+/g, ' ').trim()).filter(t => t.split(' ').length >= 4)
+      .map(t => { const l = t.toLowerCase(); return { t, s: k.reduce((a, w) => a + (l.includes(w) ? 1 : 0), 0) / Math.sqrt(Math.max(8, t.split(' ').length)) }; })
+      .sort((a, b) => b.s - a.s).map(x => x.t).filter((t, i, arr) => arr.findIndex(y => U.mirip(y.toLowerCase().slice(0, 60), t.toLowerCase().slice(0, 60)) > 0.8) === i)
+      .slice(0, 2).map(t => potong(t, 180));
+  }
+
+  U.refAnalisis = function (items, jawab, abaikan) {
+    const skip = new Set(abaikan || []);
+    const out = [];
+    items.forEach((it, i) => {
+      if (skip.has(i) || it.jenis === 'LAIN') return;
+      const vals = jawab.map(r => r[i]).filter(v => !kosong(v));
+      if (!vals.length) return;
+      const o = { judul: it.judul, jenis: it.jenis, n: vals.length };
+      if (it.jenis === 'SCALE') {
+        const xs = vals.map(Number).filter(v => !isNaN(v));
+        if (!xs.length) return;
+        o.min = it.min; o.max = it.max; o.avg = xs.reduce((a, b) => a + b, 0) / xs.length;
+        const batas = it.max - it.min >= 3 ? it.max - 1 : it.max;
+        o.tinggi = pct(xs.filter(v => v >= batas).length, xs.length);
+        o.labelTinggi = batas === it.max ? String(it.max) : batas + '–' + it.max;
+        o.maxLabel = it.maxLabel || ''; o.n = xs.length;
+      } else if (it.jenis === 'MC' || it.jenis === 'CB') {
+        const c = new Map((it.pilihan || []).map(p => [p, 0]));
+        vals.forEach(v => (Array.isArray(v) ? v : [v]).forEach(x => { x = String(x).trim(); if (!x) return; const k = c.has(x) ? x : 'Lainnya'; c.set(k, (c.get(k) || 0) + 1); }));
+        o.opsi = [...c].filter(([, n]) => n).sort((a, b) => b[1] - a[1]).map(([t, n]) => ({ t, n, p: pct(n, vals.length) }));
+      } else if (it.jenis === 'GRID' || it.jenis === 'CGRID') {
+        const kol = it.kolom || [];
+        o.baris = (it.baris || []).map((b, bi) => {
+          const c = new Map(kol.map(k => [k, 0])); let tot = 0, sk = 0, ns = 0;
+          vals.forEach(v => { const x = Array.isArray(v) ? v[bi] : null; (Array.isArray(x) ? x : [x]).forEach(y => { if (y === null || y === undefined || y === '') return; c.set(y, (c.get(y) || 0) + 1); tot++; const ix = kol.indexOf(y); if (ix >= 0) { sk += ix + 1; ns++; } }); });
+          const top = [...c].sort((a, b) => b[1] - a[1])[0] || ['', 0];
+          return { t: b, top: top[0], p: pct(top[1], tot), skor: ns ? sk / ns : null, n: tot };
+        }).filter(b => b.n);
+        o.kolom = kol.length;
+        if (!o.baris.length) return;
+      } else {   // TEXT / PARA: jawaban terbuka
+        const teks = vals.map(v => Array.isArray(v) ? v.join(', ') : String(v));
+        o.kata = kataKunci(teks); o.contoh = contoh(teks, o.kata);
+      }
+      out.push(o);
+    });
+    return out;
+  };
+
+  /* Satu baris ringkasan per pertanyaan (layar & PDF) */
+  U.refRingkas = function (o) {
+    if (o.jenis === 'SCALE') return 'Rata-rata ' + num1(o.avg) + ' dari ' + o.max + ' · ' + o.tinggi + '% memilih ' + o.labelTinggi + ' (n=' + o.n + ')';
+    if (o.opsi) return o.opsi.slice(0, 3).map(x => x.t + ' ' + x.p + '%').join(' · ') + (o.jenis === 'CB' ? ' (boleh lebih dari satu)' : '') + ' (n=' + o.n + ')';
+    if (o.baris) return o.baris.map(b => b.t + ': ' + b.top + ' ' + b.p + '%').join(' · ');
+    return (o.kata.length ? 'Sering muncul: ' + o.kata.map(k => k.t).join(', ') + '.' : 'Jawaban beragam.') + (o.contoh.length ? ' Contoh: “' + o.contoh[0] + '”' : '') + ' (n=' + o.n + ')';
+  };
+
+  /* Paragraf kesimpulan otomatis (bisa diedit fasilitator) */
+  U.refKesimpulan = function (an, nIsi, nHadir) {
+    const q = t => '“' + potong(t, 70) + '”';
+    const kal = [];
+    kal.push('Refleksi diisi oleh ' + nIsi + ' peserta' + (nHadir ? ' dari ' + nHadir + ' peserta yang hadir (' + pct(nIsi, nHadir) + '%)' : '') + '.');
+    const sc = an.filter(o => o.jenis === 'SCALE').map(o => Object.assign({ r: (o.avg - o.min) / Math.max(1, o.max - o.min) }, o)).sort((a, b) => b.r - a.r);
+    if (sc.length) {
+      const r = sc.reduce((a, o) => a + o.r, 0) / sc.length;
+      const buka = r >= 0.75 ? 'Secara umum tanggapan peserta positif' : r >= 0.5 ? 'Secara umum tanggapan peserta cukup baik' : 'Tanggapan peserta masih perlu ditingkatkan';
+      let k = buka + ': pernyataan ' + q(sc[0].judul) + ' mendapat rata-rata ' + (sc.length > 1 ? 'tertinggi ' : '') + num1(sc[0].avg) + ' dari ' + sc[0].max + ' (' + sc[0].tinggi + '% memilih ' + sc[0].labelTinggi + ')';
+      if (sc.length > 1) k += ', sedangkan ' + q(sc[sc.length - 1].judul) + ' paling rendah (' + num1(sc[sc.length - 1].avg) + ')' + (sc[sc.length - 1].r < 0.6 ? ' dan perlu mendapat perhatian' : '');
+      kal.push(k + '.');
+    }
+    an.filter(o => o.jenis === 'MC' && o.opsi.length).slice(0, 2).forEach(o => {
+      const t = o.opsi[0];
+      kal.push('Pada pertanyaan ' + q(o.judul) + ', ' + (t.p >= 50 ? 'sebagian besar peserta memilih' : 'pilihan terbanyak adalah') + ' “' + t.t + '” (' + t.p + '%).');
+    });
+    an.filter(o => o.jenis === 'CB' && o.opsi.length).slice(0, 1).forEach(o => {
+      const a = o.opsi.slice(0, 2).map(x => '“' + x.t + '” (' + x.p + '%)');
+      kal.push('Untuk ' + q(o.judul) + ', yang paling banyak dipilih adalah ' + daftarKata(a) + '.');
+    });
+    an.filter(o => o.baris && o.baris.some(b => b.skor !== null) && o.kolom >= 3).slice(0, 1).forEach(o => {
+      const bs = o.baris.filter(b => b.skor !== null).sort((a, b) => b.skor - a.skor);
+      let k = 'Pada ' + q(o.judul) + ', aspek “' + bs[0].t + '” paling banyak dinilai “' + bs[0].top + '”';
+      if (bs.length > 1 && bs[bs.length - 1].skor < bs[0].skor) k += ', sedangkan “' + bs[bs.length - 1].t + '” mendapat penilaian terendah';
+      kal.push(k + '.');
+    });
+    an.filter(o => o.kata && o.kata.length).slice(0, 2).forEach(o => {
+      kal.push('Jawaban tentang ' + q(o.judul) + ' paling sering menyebut ' + daftarKata(o.kata.slice(0, 3).map(k => k.t)) + '.');
+    });
+    return kal.join(' ');
+  };
+
   window.Importer = U;
 })();
