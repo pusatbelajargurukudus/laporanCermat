@@ -1,4 +1,4 @@
-# Panduan Pemasangan LAPORAN CERMAT v3.2
+# Panduan Pemasangan LAPORAN CERMAT v3.3
 
 Aplikasi terdiri dari dua bagian:
 
@@ -98,6 +98,13 @@ Pemasangan cukup **sekali**, sekitar 15 menit.
 4. Buka aplikasi dan tekan **Ctrl+Shift+R** sekali.
 
 Data lama tetap aman. Kolom baru di Sheets ditambahkan otomatis.
+
+**Catatan v3.3 (Nama terisi otomatis di form, server 2.9.3) — WAJIB deploy ulang Apps Script:**
+1. Ganti seluruh isi `Code.gs`, **Simpan**, lalu **Deploy → Kelola deployment → pensil → Versi baru → Deploy**. Tidak ada izin baru.
+2. Lembar `TesTautan` mendapat kolom `entNama`, `entJabatan`, `opsiJabatan`. Untuk tautan yang sudah tersimpan, isian Nama dan Jabatan/Kelas dibaca otomatis dari form saat halaman Pretes & Postes pertama kali dibuka; tidak perlu menyimpan ulang tautan.
+3. Form perlu pertanyaan **Nama** berjenis *Jawaban singkat*. Pertanyaan Jabatan/Kelas boleh jawaban singkat atau pilihan.
+4. Akun guru: tombol Kerjakan membuka **Pilih nama Anda** (dari Data guru sekolah itu), lalu form terbuka dengan nama dan jabatan terisi. Akun kepala sekolah langsung terisi namanya.
+5. **Lihat hasil** di portal memakai daftar guru dan ejaan yang diingat, jadi pretes & postes orang yang sama berpasangan. Di *Periksa nama*, nama baru yang mirip satu sama lain diarahkan ke satu orang.
 
 **Catatan v3.2 (Ambil nilai otomatis & nama ganda, server 2.9.2) — WAJIB deploy ulang Apps Script:**
 1. Ganti seluruh isi `Code.gs` dengan versi ini, **Simpan**, lalu **Deploy → Kelola deployment → pensil → Versi baru → Deploy**. URL tetap sama, tidak ada izin baru.

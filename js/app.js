@@ -1566,15 +1566,28 @@
       const seen = new Map();
       ex.rows.forEach(r => { const k = I.normName(r.nama); if (!seen.has(k)) seen.set(k, { nama: r.nama, key: k, c: I.cocokkan(r.nama, s.peserta) }); });
       const perlu = [...seen.values()].filter(x => !x.c.p);
-      if (perlu.length && s.peserta.length) {
+      // nama di luar daftar yang mirip satu sama lain (pretes "Siti Nurhaliza", postes "Siti N."): satu orang.
+      // Nama yang lebih lengkap jadi patokan; yang lain diarahkan ke sana.
+      const sama = x => perlu.filter(y => y !== x && (y.key.length > x.key.length || (y.key.length === x.key.length && perlu.indexOf(y) < perlu.indexOf(x))))
+        .map(y => ({ key: y.key, nama: y.nama, skor: I.mirip(x.key, y.key) })).filter(z => z.skor >= 0.85).sort((a, b) => b.skor - a.skor).slice(0, 2);
+      if (perlu.length && (s.peserta.length || perlu.some(x => sama(x).length))) {
         imp.ex = ex;
-        imp.review = perlu.map(x => ({ nama: x.nama, key: x.key, saran: x.c.saran, pilih: x.c.saran.length ? x.c.saran[0].p.id : 'baru',
-          ganda: x.c.saran.length > 1 && x.c.saran[0].skor - x.c.saran[1].skor < 0.03 }));
+        imp.review = perlu.map(x => {
+          const sm = sama(x), top = x.c.saran[0];
+          const pilih = top && (!sm.length || top.skor >= sm[0].skor) ? top.p.id : sm.length ? 'sama:' + sm[0].key : 'baru';
+          return { nama: x.nama, key: x.key, saran: x.c.saran, sama: sm, pilih,
+            ganda: (sk => sk.length > 1 && sk[0] - sk[1] < 0.03)(x.c.saran.concat(sm).map(z => z.skor).sort((a, b) => b - a)) };
+        });
         rerenderStep();
         return;
       }
     }
     const keputusan = new Map((imp.review || []).map(x => [x.key, x.pilih]));
+    const namaRev = new Map((imp.review || []).map(x => [x.key, x.nama]));
+    // ikuti rantai "sama dengan nama baru lain" sampai keputusan akhir: id guru, 'baru' (patokan = nama terakhir di rantai), atau 'abaikan'
+    const akhir = k => { const lewat = new Set(); let d = keputusan.get(k) || 'baru', pk = k;
+      while (d.startsWith('sama:') && !lewat.has(d)) { lewat.add(d); pk = d.slice(5); d = keputusan.get(pk) || 'baru'; }
+      return { d: d.startsWith('sama:') ? 'baru' : d, pk }; };
     const baruId = new Map();
     let baru = 0, ejaan = 0, abaikan = 0;
     const hadir = new Set(rep.hadir || []);
@@ -1584,15 +1597,16 @@
       const k = I.normName(r0.nama);
       let p = I.cocokkan(r0.nama, s.peserta).p;
       if (!p) {
-        const d = keputusan.get(k) || 'baru';
+        const { d, pk } = akhir(k);
         if (d === 'abaikan') { abaikan++; return; }
         if (d === 'baru') {
-          if (!baruId.has(k)) {
+          if (!baruId.has(pk)) {
             const pj = I.parseJabatan(r.jabatanRaw);
-            const np = { id: R.uid(), nama: r.nama, jabatan: pj.jabatan, kelas: pj.kelas, alias: [], gabungan: [] };
-            s.peserta.push(np); baruId.set(k, np); baru++;
+            const np = { id: R.uid(), nama: prettyName(namaRev.get(pk) || r0.nama), jabatan: pj.jabatan, kelas: pj.kelas, alias: [], gabungan: [] };
+            s.peserta.push(np); baruId.set(pk, np); baru++;
           }
-          p = baruId.get(k);
+          p = baruId.get(pk);
+          if (k !== pk && !p.alias.some(a => I.normName(a) === k)) { p.alias.push(r0.nama.trim()); ejaan++; }
         } else {
           p = s.peserta.find(x => x.id === d);
           if (p && I.normName(p.nama) !== k && !(p.alias = p.alias || []).some(a => I.normName(a) === k)) { p.alias.push(r0.nama.trim()); ejaan++; }
@@ -1624,9 +1638,11 @@
     const rows = imp.review.map((x, i) => {
       const sar = new Set(x.saran.map(z => z.p.id));
       const o = x.saran.map(z => opt(z.p.id, '★ ' + z.p.nama + ' (mirip ' + Math.round(z.skor * 100) + '%)', x.pilih === z.p.id)).join('')
+        + (x.sama || []).map(z => opt('sama:' + z.key, '★ Sama dengan ' + z.nama + ' (baru)', x.pilih === 'sama:' + z.key)).join('')
         + (list.some(p => !sar.has(p.id)) ? `<optgroup label="Guru lain">${list.filter(p => !sar.has(p.id)).map(p => opt(p.id, p.nama, x.pilih === p.id)).join('')}</optgroup>` : '')
         + `<optgroup label="Lainnya">${opt('baru', '+ Tambah sebagai peserta baru', x.pilih === 'baru')}${opt('abaikan', 'Abaikan (tidak dihitung)', x.pilih === 'abaikan')}</optgroup>`;
-      const ket = x.saran.length ? (x.ganda ? 'Ada beberapa nama mirip, periksa pilihannya' : 'Nama mirip ditemukan') : 'Tidak ditemukan di daftar guru';
+      const ket = x.saran.length ? (x.ganda ? 'Ada beberapa nama mirip, periksa pilihannya' : 'Nama mirip ditemukan')
+        : (x.sama || []).length ? 'Belum ada di daftar guru, mirip nama baru lain di form' : 'Tidak ditemukan di daftar guru';
       return `<div class="nrev${x.ganda ? ' warn' : ''}"><div class="nrn"><b>${esc(x.nama)}</b><span class="small muted">${ket}</span></div>
         <select data-imp-rev="${i}" aria-label="Orang yang dimaksud untuk ${esc(x.nama)}">${o}</select></div>`;
     }).join('');

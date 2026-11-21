@@ -13,8 +13,8 @@
  *   3. Deploy > New deployment > Web app (Execute as: Me, Who has access: Anyone)
  */
 
-var APP_VERSION = '2.9.2';
-var SCHEMA = '2.5';
+var APP_VERSION = '2.9.3';
+var SCHEMA = '2.6';
 var SESSION_DAYS = 30;
 var MAX_FAIL = 5;          // salah sandi berturut-turut
 var LOCK_SECONDS = 600;    // lama kunci setelah salah sandi (detik)
@@ -37,7 +37,7 @@ var SHEETS = {
   Sesi: ['tokenHash', 'username', 'expires'],
   Log: ['waktu', 'username', 'aksi', 'detail'],
   Pengesahan: ['id', 'key', 'peran', 'username', 'nama', 'nip', 'version', 'waktu', 'aktif', 'batalAt'],
-  TesTautan: ['no', 'editUrl', 'formId', 'pubUrl', 'entJenis', 'optPre', 'optPost', 'entSekolah', 'opsiSekolah', 'catatan', 'diubah', 'oleh'],
+  TesTautan: ['no', 'editUrl', 'formId', 'pubUrl', 'entJenis', 'optPre', 'optPost', 'entSekolah', 'opsiSekolah', 'catatan', 'diubah', 'oleh', 'entNama', 'entJabatan', 'opsiJabatan'],   // entNama '-' = form tanpa isian nama
   TesBuka: ['sekolahId', 'no', 'jenis', 'aktif', 'sampai', 'oleh', 'waktu']
 };
 
@@ -235,11 +235,57 @@ function tesInspect_(no, editUrl) {
     }
     if (!row.entSekolah) cat.push('Pertanyaan asal sekolah tidak bisa diisi otomatis.');
   } else cat.push('Pertanyaan "Asal sekolah" tidak ditemukan; isian otomatis sekolah dilewati.');
+  var io = tesIsianOrang_(form, items);
+  Object.keys(io).forEach(function (k) { row[k] = io[k]; });
+  if (row.entNama === '-') cat.push('Pertanyaan "Nama" (jawaban singkat) tidak ditemukan; nama peserta tidak bisa diisi otomatis.');
   if (!form.isQuiz()) cat.push('Form belum diatur sebagai Kuis, jadi skor tidak terbaca otomatis.');
   if (!form.isAcceptingResponses()) cat.push('Form sedang tidak menerima respons (bisa diubah di Google Form).');
   row.catatan = cat.join(' ');
   return row;
 }
+
+/* Isian Nama (jawaban singkat) & Jabatan/Kelas: diisi otomatis dari pilihan "Pilih nama Anda" di portal */
+function tesIsianOrang_(form, items) {
+  var o = { entNama: '-', entJabatan: '', opsiJabatan: '' };
+  var nama = null, jab = null;
+  items.forEach(function (it) {
+    var t = String(it.getTitle() || '').toLowerCase();
+    if (!nama && /nama/.test(t) && !/sekolah|instansi|lembaga|madrasah|kepala/.test(t) && it.getType() === FormApp.ItemType.TEXT) nama = it;
+    if (!jab && /jabatan|kelas|peran|tugas|mengajar/.test(t) && !/jenis|sekolah/.test(t)) jab = it;
+  });
+  if (nama) o.entNama = tesEntry_(form, nama.asTextItem().createResponse('x')) || '-';
+  if (jab) {
+    if (jab.getType() === FormApp.ItemType.TEXT) o.entJabatan = tesEntry_(form, jab.asTextItem().createResponse('x'));
+    else {
+      var cj = tesChoiceItem_(jab);
+      if (cj) {
+        var opsi = cj.getChoices().map(function (c) { return c.getValue(); });
+        if (opsi.length) { o.entJabatan = tesEntry_(form, cj.createResponse(opsi[0])); o.opsiJabatan = opsi.join('|'); }
+      }
+    }
+  }
+  return o;
+}
+
+/* Tautan yang disimpan sebelum v3.3 belum punya isian nama: dibaca sekali dari form lalu disimpan */
+function tesLengkapiNama_(links) {
+  var perlu = TES_NO.filter(function (no) { var L = links[String(no)]; return L && L.formId && !L.entNama; });
+  if (!perlu.length) return links;
+  var isi = {};
+  perlu.forEach(function (no) {
+    var L = links[String(no)];
+    try { var f = tesOpenForm_(L); isi[no] = tesIsianOrang_(f, f.getItems()); }
+    catch (e) { /* form belum bisa dibuka: dicoba lagi lain kali */ }
+  });
+  if (!Object.keys(isi).length) return links;
+  lock_(function () {
+    rows_('TesTautan').forEach(function (r) { if (isi[r.no]) update_('TesTautan', r._row, isi[r.no]); });
+  });
+  return tesRowsByNo_();
+}
+
+/* Label jabatan seperti di daftar hadir: "Guru Kelas 2", "Guru PAI", "Kepala Sekolah" */
+function tesJabatan_(p) { return p.jabatan === 'Guru Kelas' && p.kelas ? 'Guru Kelas ' + p.kelas : String(p.jabatan || ''); }
 
 function tesRowsByNo_() {
   var m = {};
@@ -257,7 +303,7 @@ function tesSekolahFor_(user) {
 }
 
 function tesList_(req, user) {
-  var links = tesRowsByNo_();
+  var links = tesLengkapiNama_(tesRowsByNo_());
   var sks = tesSekolahFor_(user);
   var ids = {};
   sks.forEach(function (s) { ids[s.id] = true; });
@@ -276,11 +322,24 @@ function tesList_(req, user) {
     if (L.pubUrl && (staff || ((user.peran === 'guru' || user.peran === 'kepsek') && open))) {
       o.url = L.pubUrl; o.entJenis = L.entJenis; o.optPre = L.optPre; o.optPost = L.optPost;
       o.entSekolah = L.entSekolah; o.opsiSekolah = L.opsiSekolah ? L.opsiSekolah.split('|') : [];
+      o.entNama = L.entNama && L.entNama !== '-' ? L.entNama : ''; o.entJabatan = L.entJabatan || ''; o.opsiJabatan = L.opsiJabatan ? L.opsiJabatan.split('|') : [];
     }
     return o;
   });
+  // guru & kepala sekolah: daftar guru sekolahnya untuk "Pilih nama Anda" (nama + jabatan saja)
+  var orang = [];
+  if ((user.peran === 'guru' || user.peran === 'kepsek') && sks.length) {
+    orang = rows_('Peserta').filter(function (p) { return p.sekolahId === sks[0].id; })
+      .map(function (p) { return { id: p.id, nama: p.nama, jabatan: tesJabatan_(p), ks: p.id === 'ks_' + sks[0].id }; })
+      .sort(function (a, b) { return (b.ks - a.ks) || a.nama.localeCompare(b.nama); });
+  }
+  var saya = null;
+  if (user.peran === 'kepsek' && sks.length) {
+    var ks = orang.filter(function (p) { return p.ks; })[0];
+    saya = { nama: ks ? ks.nama : (sks[0].ksNama || user.nama), jabatan: 'Kepala Sekolah' };
+  }
   return { tes: tes, sekolah: sks.map(function (s) { return { id: s.id, nama: s.nama, alias: s.alias ? s.alias.split('|') : [] }; }),
-    sekarang: now_() };
+    orang: user.peran === 'guru' ? orang : [], saya: saya, sekarang: now_() };
 }
 
 function tesAkhirHari_() {
@@ -380,7 +439,13 @@ function tesResponses_(req, user) {
     }
     rows.push(row);
   });
-  return { rows: rows, judul: form.getTitle(), jumlah: rows.length - 1, quiz: quiz };
+  // daftar guru sekolah yang boleh dilihat, supaya "Lihat hasil" memakai nama resmi & ejaan yang sudah diingat
+  var boleh = {};
+  tesSekolahFor_(user).forEach(function (s) { boleh[s.id] = true; });
+  var peserta = rows_('Peserta').filter(function (p) { return boleh[p.sekolahId]; }).map(function (p) {
+    return { id: p.id, sekolahId: p.sekolahId, nama: p.nama, alias: p.alias ? p.alias.split('|') : [] };
+  });
+  return { rows: rows, judul: form.getTitle(), jumlah: rows.length - 1, quiz: quiz, peserta: peserta };
 }
 
 function tesPoints_(it) {
