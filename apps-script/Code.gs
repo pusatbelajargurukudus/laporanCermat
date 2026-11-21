@@ -168,7 +168,8 @@ var ACTIONS = {
  * - Fasilitator membuka (aktifkan) pretes/postes untuk sekolahnya; otomatis tertutup pukul 23.59 hari itu.
  *   Membuka postes otomatis menutup pretes sekolah itu.
  * - Guru & kepala sekolah hanya menerima tautan isian bila tesnya sedang dibuka untuk sekolah mereka.
- * - Nilai bisa diambil langsung dari jawaban form (akun pemilik skrip harus editor form).
+ * - Nilai bisa diambil langsung dari jawaban form (akun pemilik skrip harus editor form):
+ *   fasilitator untuk sekolahnya, admin & pemantau untuk semua sekolah (tombol Lihat hasil di portal).
  * ============================================================= */
 function tesFormId_(url) {
   var m = String(url || '').match(/\/forms\/d\/(?!e\/)([A-Za-z0-9_-]{20,})/);
@@ -348,8 +349,11 @@ function tesSaveLinks_(req, user) {
 /* Jawaban form sebagai tabel [judul kolom..., Skor] — dibaca oleh pengimpor yang sama dengan file CSV */
 function tesResponses_(req, user) {
   var no = parseInt(req.no, 10);
-  var sk = sekolahById_(String(req.sekolahId || ''));
-  if (!(user.peran === 'admin' || canFill_(user, sk))) throw err_('Hanya fasilitator sekolah ini yang bisa mengambil nilai.', 'FORBIDDEN');
+  // admin & pemantau: semua sekolah (Lihat hasil); fasilitator: hanya sekolah binaannya
+  if (user.peran !== 'admin' && user.peran !== 'pemantau') {
+    var sk = sekolahById_(String(req.sekolahId || ''));
+    if (!canFill_(user, sk)) throw err_('Hanya fasilitator sekolah ini yang bisa mengambil nilai.', 'FORBIDDEN');
+  }
   var L = tesRowsByNo_()[String(no)];
   if (!L || !L.formId) throw err_('Tautan Google Form P' + no + ' belum diisi admin. Gunakan unggah file .csv / .xlsx.', 'NOFORM');
   var form = tesOpenForm_(L);
