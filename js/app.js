@@ -1433,6 +1433,14 @@
     }
     const hadir = (rep.hadir || []).length;
     h += `<div class="stats"><div class="stat ok"><b>${R0.n}</b><span>peserta mengisi${hadir ? ' · ' + hadir + ' hadir' : ''}</span></div></div>
+      ${(() => {
+        const sk = R0.items.filter(skalaRef);
+        const kurang = sk.some(o => !Object.keys(o.lab || {}).length || o.labManual);
+        if (!sk.length || (!kurang && !R0.arti) || readOnly) return '';
+        const o = sk[0];
+        return `<label class="f" style="margin-top:14px">Arti skor ${o.min}–${o.max} <span class="small muted">(tidak ditemukan di form; diketik sekali untuk laporan ini)</span></label>
+          <input type="text" data-ref-arti value="${esc(R0.arti || '')}" placeholder="mis. ${o.min} = tidak setuju, ${o.max} = sangat setuju">`;
+      })()}
       <label class="f" style="margin-top:14px">Kesimpulan refleksi <span class="small muted">(tercetak di laporan, boleh diedit)</span></label>
       <textarea data-ref-kes style="min-height:150px"${readOnly ? ' readonly' : ''}>${esc(R0.kesimpulan || '')}</textarea>
       ${(rows => `<details class="adv"><summary>Rincian per pertanyaan (${rows.length})</summary><table class="simple"><tbody>
@@ -1464,13 +1472,23 @@
         last.set(I.normName(nm), { nama: nm, jabatanRaw: c.jabatan >= 0 ? row[c.jabatan] : '', jenis: 'ref', idx: i });
       });
       imp.exRef = { rows: [...last.values()] };
-      imp.ref = { items: d.items || [], jawab: d.jawab || [], judul: d.judul || '', abaikan: [c.nama, c.sekolah, c.jabatan, c.pendampingan].filter(x => x >= 1).map(x => x - 1) };
+      imp.ref = { items: d.items || [], jawab: d.jawab || [], judul: d.judul || '', ketForm: d.ketForm || '', abaikan: [c.nama, c.sekolah, c.jabatan, c.pendampingan].filter(x => x >= 1).map(x => x - 1) };
       S.imp = imp; S.impMode = 'ref';
       S.impForm = false;
       applyImport();
     } catch (e) {
       toast(e.code === 'NOFORM' ? 'Tautan form refleksi P' + rep.no + ' belum diisi admin.' : (e.message || 'Gagal mengambil jawaban.'), true, 6000);
     } finally { S.impForm = false; rerenderStep(true); }
+  }
+  /* Arti skor yang diketik fasil: dipakai untuk skala yang artinya tidak ditemukan di form */
+  const skalaRef = o => o.jenis === 'SCALE' || o.jenis === 'GSCALE';
+  function terapkanArti(items, arti) {
+    items.filter(skalaRef).forEach(o => {
+      if (o.labManual) { o.lab = {}; delete o.labManual; }
+      if (Object.keys(o.lab || {}).length || !arti) return;
+      const m = I.labelAngka(arti, o.min, o.max);
+      if (Object.keys(m).length) { o.lab = m; o.labManual = true; }
+    });
   }
   function susunKesimpulan(rep) {
     const R0 = rep.refleksi; if (!R0) return;
@@ -1683,11 +1701,13 @@
       // satu jawaban per orang (kiriman terakhir), lalu dianalisis
       const byP = new Map(); rows.forEach(r => byP.set(r.nama, r));
       const ikut = [...byP.values()];
-      const an = I.refAnalisis(imp.ref.items, ikut.map(r => imp.ref.jawab[r.idx] || []), imp.ref.abaikan);
+      const an = I.refAnalisis(imp.ref.items, ikut.map(r => imp.ref.jawab[r.idx] || []), imp.ref.abaikan, imp.ref.ketForm);
       rep.hadir = [...hadir];
-      const lama = rep.refleksi, auto = I.refKesimpulan(an, ikut.length, rep.hadir.length);
+      const lama = rep.refleksi;
+      terapkanArti(an, lama && lama.arti);
+      const auto = I.refKesimpulan(an, ikut.length, rep.hadir.length);
       rep.refleksi = { judul: imp.ref.judul, importedAt: Date.now(), n: ikut.length, nama: ikut.map(r => r.nama).sort((a, b) => a.localeCompare(b, 'id')),
-        items: an, kesAuto: auto, kesimpulan: lama && lama.kesEdit ? lama.kesimpulan : auto, kesEdit: !!(lama && lama.kesEdit) };
+        items: an, arti: (lama && lama.arti) || '', kesAuto: auto, kesimpulan: lama && lama.kesEdit ? lama.kesimpulan : auto, kesEdit: !!(lama && lama.kesEdit) };
       S.imp = null;
       markPeserta(s.id);
       touch(); rerenderStep(true);
@@ -2611,6 +2631,15 @@
     if (!rep || readOnly) return;
     if (t.dataset.act === 'imp-file' && t.files[0]) return importFile(t.files[0], t.dataset.mode);
     if (t.dataset.impCol) { S.imp.cols[t.dataset.impCol] = parseInt(t.value, 10); if (t.dataset.impCol === 'sekolah') autoSchools(S.imp, school(rep.sekolahId)); rerenderStep(); return; }
+    if (t.hasAttribute && t.hasAttribute('data-ref-arti') && S.cur && S.cur.refleksi && !readOnly) {
+      const R0 = S.cur.refleksi; R0.arti = t.value.trim();
+      terapkanArti(R0.items, R0.arti);
+      R0.kesAuto = I.refKesimpulan(R0.items, R0.n, (S.cur.hadir || []).length);
+      if (!R0.kesEdit) R0.kesimpulan = R0.kesAuto;
+      touch(); rerenderStep(true);
+      toast(R0.items.some(o => o.labManual) ? 'Arti skor dipakai di rangkuman.' : 'Arti skor belum terbaca. Tulis seperti: 1 = tidak setuju, 4 = sangat setuju.', !R0.items.some(o => o.labManual));
+      return;
+    }
     if (t.dataset.impRev !== undefined) { if (S.imp && S.imp.review) S.imp.review[+t.dataset.impRev].pilih = t.value; return; }
     if (t.dataset.impSchool !== undefined) { t.checked ? S.imp.schools.add(t.dataset.impSchool) : S.imp.schools.delete(t.dataset.impSchool); rerenderStep(); return; }
     if (t.dataset.up && t.files.length) {

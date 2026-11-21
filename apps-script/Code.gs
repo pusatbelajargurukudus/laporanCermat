@@ -13,7 +13,7 @@
  *   3. Deploy > New deployment > Web app (Execute as: Me, Who has access: Anyone)
  */
 
-var APP_VERSION = '3.0.1';
+var APP_VERSION = '3.0.2';
 var SCHEMA = '2.6';
 var SESSION_DAYS = 30;
 var MAX_FAIL = 5;          // salah sandi berturut-turut
@@ -442,6 +442,15 @@ function tesResponses_(req, user) {
   if (!L || !L.formId) throw err_('Tautan Google Form ' + tesLabel_(tesKunci_(no, ref)) + ' belum diisi admin.' + (ref ? '' : ' Gunakan unggah file .csv / .xlsx.'), 'NOFORM');
   var form = tesOpenForm_(L);
   var skip = [FormApp.ItemType.SECTION_HEADER, FormApp.ItemType.PAGE_BREAK, FormApp.ItemType.IMAGE, FormApp.ItemType.VIDEO];
+  // keterangan bagian (judul/deskripsi bagian di atas pertanyaan), dipakai untuk arti angka skala
+  var bagian = {}, ketBagian = '';
+  form.getItems().forEach(function (it) {
+    var t = it.getType();
+    if (t === FormApp.ItemType.SECTION_HEADER || t === FormApp.ItemType.PAGE_BREAK) {
+      var hlp = ''; try { hlp = String(it.getHelpText() || ''); } catch (e) { /* tanpa deskripsi */ }
+      ketBagian = hlp;
+    } else bagian[it.getId()] = ketBagian;
+  });
   var items = form.getItems().filter(function (it) { return skip.indexOf(it.getType()) < 0; });
   var quiz = !ref && form.isQuiz();
   var maks = 0;
@@ -474,7 +483,11 @@ function tesResponses_(req, user) {
   });
   var out = { rows: rows, judul: form.getTitle(), jumlah: rows.length - 1, quiz: quiz, peserta: peserta };
   // refleksi: jenis tiap pertanyaan & jawaban asli (untuk rangkuman analisis di laporan)
-  if (ref) { out.items = items.map(tesItemInfo_); out.jawab = jawab; }
+  if (ref) {
+    out.items = items.map(function (it) { var o = tesItemInfo_(it); o.ketBagian = bagian[it.getId()] || ''; return o; });
+    out.jawab = jawab;
+    try { out.ketForm = String(form.getDescription() || ''); } catch (e) { out.ketForm = ''; }
+  }
   return out;
 }
 

@@ -301,15 +301,39 @@
       .slice(0, 2).map(t => potong(t, 180));
   }
 
-  /* Arti angka skala dari keterangan pertanyaan: "1 = Sangat tidak setuju, 2 = Tidak setuju, ..." */
-  function labelAngka(ket) {
+  /* Arti angka skala dari keterangan: "1 = Sangat tidak setuju, 2 = Tidak setuju", "1 = belum · 2 = kurang",
+   * "1. STS", "1 (Sangat tidak setuju)", "Sangat setuju = 4", "SS (4)". Singkatan STS/TS/KS/R/N/S/SS diuraikan. */
+  const SINGKAT = { sts: 'sangat tidak setuju', ts: 'tidak setuju', ks: 'kurang setuju', r: 'ragu-ragu', n: 'netral', cs: 'cukup setuju', s: 'setuju', ss: 'sangat setuju' };
+  function labelAngka(ket, min, max) {
+    const teks = String(ket || '');
     const m = {};
-    String(ket || '').replace(/(\d+)\s*(?:=|:|-|–|—|\))\s*([^,;\n\d()]+)/g, (_, n, t) => { t = t.trim().replace(/[.\s]+$/, ''); if (t && t.length <= 40) m[n] = t; return _; });
-    return m;
+    const simpan = (n, t) => {
+      t = String(t || '').replace(/^[\s:=.\-–—]+|[\s.,;:·•|\-–—]+$/g, '').trim();
+      if (!t || t.length > 45 || /^\d+$/.test(t)) return;
+      if (min !== undefined && (Number(n) < min || Number(n) > max)) return;
+      if (m[n] === undefined) m[n] = SINGKAT[t.toLowerCase()] || t;
+    };
+    const PISAH = '·•|;\\n,=()';
+    // angka lalu arti: 1 = …, 1: …, 1. …, 1 - …, 1) …, 1 (…)
+    const re1 = new RegExp('(?:^|[\\s' + PISAH + '])(\\d{1,2})\\s*(?:=|:|\\.|-|–|—|\\)|\\()\\s*([^' + PISAH + '\\d]*[^' + PISAH + '\\d\\s])', 'g');   // tanpa spasi di ujung: spasi itu pembatas angka berikutnya
+    let x;
+    while ((x = re1.exec(teks))) simpan(x[1], x[2]);
+    if (Object.keys(m).length < 2) {
+      // arti lalu angka: Sangat setuju = 4, SS (4)
+      const re2 = new RegExp('([A-Za-z][^' + PISAH + '\\d]*?)\\s*(?:=|:|\\()\\s*(\\d{1,2})\\b', 'g');
+      while ((x = re2.exec(teks))) simpan(x[2], x[1].replace(/^(skala|keterangan|ket)\s*/i, ''));
+    }
+    return Object.keys(m).length >= 2 ? m : {};
   }
+  /* Ambil dari sumber pertama yang berisi arti angka: deskripsi pertanyaan, deskripsi bagian, deskripsi form */
+  function labelDari(sumber, min, max) {
+    for (const t of sumber) { const m = labelAngka(t, min, max); if (Object.keys(m).length) return m; }
+    return {};
+  }
+  U.labelAngka = labelAngka;
   const angka = v => /^\s*-?\d+(?:[.,]\d+)?\s*$/.test(String(v));
 
-  U.refAnalisis = function (items, jawab, abaikan) {
+  U.refAnalisis = function (items, jawab, abaikan, ketForm) {
     const skip = new Set(abaikan || []);
     const out = [];
     items.forEach((it, i) => {
@@ -320,7 +344,7 @@
       if (it.jenis === 'SCALE') {
         const xs = vals.map(Number).filter(v => !isNaN(v));
         if (!xs.length) return;
-        const lab = labelAngka(it.ket);
+        const lab = labelDari([it.ket, it.ketBagian, ketForm], it.min, it.max);
         if (it.minLabel && lab[it.min] === undefined) lab[it.min] = it.minLabel;
         if (it.maxLabel && lab[it.max] === undefined) lab[it.max] = it.maxLabel;
         Object.assign(o, skalaRingkas(xs, it.min, it.max), { lab });
@@ -334,7 +358,7 @@
         if (numerik) {
           // petak berkolom angka (mis. 1–4) = skala per pernyataan
           const ns = kol.map(k => Number(String(k).replace(',', '.')));
-          o.jenis = 'GSCALE'; o.min = Math.min(...ns); o.max = Math.max(...ns); o.lab = labelAngka(it.ket);
+          o.jenis = 'GSCALE'; o.min = Math.min(...ns); o.max = Math.max(...ns); o.lab = labelDari([it.ket, it.ketBagian, ketForm], o.min, o.max);
           o.baris = (it.baris || []).map((b, bi) => {
             const xs = [];
             vals.forEach(v => { const x = Array.isArray(v) ? v[bi] : null; (Array.isArray(x) ? x : [x]).forEach(y => { if (y !== null && y !== undefined && angka(y)) xs.push(Number(String(y).replace(',', '.'))); }); });
@@ -363,13 +387,13 @@
     const nT = xs.filter(v => v >= batas).length;
     return { min, max, avg: xs.reduce((a, b) => a + b, 0) / xs.length, n: xs.length, nTinggi: nT, tinggi: pct(nT, xs.length), batas };
   }
-  /* "3–4 (setuju–sangat setuju)" atau "4–5" bila arti angka tidak diketahui */
+  /* "skor 4 (memahami/setuju) atau 5 (sangat memahami/sangat setuju)"; "skor 4–5" bila arti angka tidak diketahui */
   function rentangTinggi(o, lab) {
     const batas = o.batas !== undefined ? o.batas : (o.max - o.min >= 3 ? o.max - 1 : o.max);
-    const r = batas === o.max ? String(o.max) : batas + '–' + o.max;
-    const a = lab && lab[batas], b = lab && lab[o.max];
-    const arti = batas === o.max ? (b || '') : (a && b ? a + '–' + b : '');
-    return 'skor ' + r + (arti ? ' (' + arti.toLowerCase() + ')' : '');
+    const L = n => lab && lab[n] ? String(lab[n]).toLowerCase() : '';
+    if (batas === o.max) return 'skor ' + o.max + (L(o.max) ? ' (' + L(o.max) + ')' : '');
+    if (o.max - batas === 1 && L(batas) && L(o.max)) return 'skor ' + batas + ' (' + L(batas) + ') atau ' + o.max + ' (' + L(o.max) + ')';
+    return 'skor ' + batas + '–' + o.max + (L(batas) && L(o.max) ? ' (' + L(batas) + ' sampai ' + L(o.max) + ')' : '');
   }
   const bersihJudul = t => String(t || '').replace(/^\s*\d+\s*[.)]\s*/, '').replace(/[\s.:]+$/, '');
   const kutip = (t, n) => '“' + potong(bersihJudul(t), n || 70) + '”';
@@ -420,7 +444,9 @@
       const nT = unit.reduce((a, u) => a + (u.nTinggi || 0), 0), nA = unit.reduce((a, u) => a + u.n, 0);
       if (unit.length === 1) kal.push(buka + ': pernyataan ' + kutip(unit[0].judul) + ' mendapat rata-rata ' + num1(unit[0].avg) + ' dari ' + unit[0].max + ', dan ' + pct(nT, nA) + '% peserta memilih ' + rentangTinggi(unit[0], unit[0].lab) + '.');
       else {
-        kal.push(buka + (satuSkala ? ': rata-rata seluruh pernyataan ' + num1(unit.reduce((a, u) => a + u.avg, 0) / unit.length) + ' dari ' + unit[0].max + ', dan ' + pct(nT, nA) + '% jawaban berada pada ' + rentangTinggi(unit[0], unit[0].lab) : '') + '.');
+        // arti angka: dari butir yang artinya paling lengkap
+        const labTerbaik = unit.map(u => u.lab || {}).sort((a, b) => Object.keys(b).length - Object.keys(a).length)[0];
+        kal.push(buka + (satuSkala ? ': rata-rata seluruh pernyataan ' + num1(unit.reduce((a, u) => a + u.avg, 0) / unit.length) + ' dari ' + unit[0].max + ', dan ' + pct(nT, nA) + '% jawaban berada pada ' + rentangTinggi(unit[0], labTerbaik) : '') + '.');
         const urut = unit.slice().sort((a, b) => b.r - a.r), hi = urut[0], lo = urut[urut.length - 1];
         if (hi.r > lo.r) kal.push('Skor tertinggi ada pada pernyataan ' + kutip(hi.judul) + ' (' + num1(hi.avg) + '), sedangkan terendah pada ' + kutip(lo.judul) + ' (' + num1(lo.avg) + ')' + (lo.r < 0.6 || hi.avg - lo.avg >= 0.4 ? ', sehingga aspek ini perlu mendapat penguatan' : '') + '.');
       }

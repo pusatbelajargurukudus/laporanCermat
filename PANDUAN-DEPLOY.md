@@ -1,4 +1,4 @@
-# Panduan Pemasangan LAPORAN CERMAT v3.4.1
+# Panduan Pemasangan LAPORAN CERMAT v3.4.2
 
 Aplikasi terdiri dari dua bagian:
 
@@ -98,6 +98,11 @@ Pemasangan cukup **sekali**, sekitar 15 menit.
 4. Buka aplikasi dan tekan **Ctrl+Shift+R** sekali.
 
 Data lama tetap aman. Kolom baru di Sheets ditambahkan otomatis.
+
+**Catatan v3.4.2 (Arti skor refleksi, server 3.0.2) — deploy ulang Apps Script (Versi baru):**
+- Arti angka skala dicari di deskripsi pertanyaan, lalu deskripsi **bagian** di atasnya (mis. "A. Refleksi Tertutup"), lalu deskripsi form. Format `1 = …`, `1: …`, `1. …`, `1 (…)`, `… = 1`, pemisah `·` `|` `;` koma/baris baru, dan singkatan STS/TS/S/SS dikenali.
+- Bila tidak ditemukan, kartu Refleksi peserta menampilkan isian **Arti skor** untuk diketik fasil.
+- Laporan yang sudah mengambil refleksi: ketuk **Perbarui dari Google Form**.
 
 **Catatan v3.4.1 (Rangkuman refleksi lebih jelas, server 3.0.1) — deploy ulang Apps Script (Versi baru):**
 - Petak (grid) berkolom angka, mis. 1–4, dibaca sebagai skala: rata-rata per pernyataan dan persentase skor tinggi. Arti angka diambil dari **keterangan pertanyaan** di Google Form (mis. "1 = Sangat tidak setuju, 2 = Tidak setuju, 3 = Setuju, 4 = Sangat setuju").
