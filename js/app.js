@@ -1402,13 +1402,11 @@
     const sebelum = rewardTotals(s.id, rep.no - 1);
     const kini = R.rewardHadir(rep);
     const jumlah = Object.values(kini).reduce((a, b) => a + b, 0);
-    const kosong = hadir.filter(p => kini[p.id] === undefined).length;
     if (!hadir.length) return `<div class="card"><div class="card-h">${ic('star')}<h2>Reward peserta</h2></div>
       <div class="banner warn small">${ic('alert')}<div>Belum ada peserta yang dicentang hadir. Reward hanya diberikan kepada peserta yang hadir. <a href="#/laporan/${s.id}/${rep.no}/2">Isi kehadiran →</a></div></div></div>`;
     return `<div class="card"><div class="card-h">${ic('star')}<h2>Reward peserta · Pendampingan ${rep.no}</h2><span class="spacer"></span>
         <span class="pill gold">Jumlah: <b id="rwSum" style="margin-left:4px">${jumlah}</b>&nbsp;bintang</span></div>
-      <p class="small muted ro-hide" style="margin-top:-4px">Isi jumlah bintang yang diperoleh setiap peserta yang hadir pada pendampingan ini. Isi <b>0</b> bila peserta tidak mendapat bintang. Total bertambah otomatis dari P1 sampai pendampingan ini.</p>
-      <div class="row ro-hide" style="margin:4px 0 10px"><button class="btn sm" data-act="rw-fill0"${kosong ? '' : ' disabled'}>Isi 0 untuk yang masih kosong${kosong ? ' (' + kosong + ')' : ''}</button></div>
+      <p class="small muted ro-hide" style="margin-top:-4px">Isi jumlah bintang yang diperoleh setiap peserta yang hadir pada pendampingan ini. Peserta yang tidak mendapat bintang cukup dibiarkan kosong (–), otomatis dihitung 0. Total bertambah otomatis dari P1 sampai pendampingan ini.</p>
       <div class="rw-list">
         <div class="rw rw-h"><span>Peserta hadir (${hadir.length})</span><span>Bintang P${rep.no}</span><span>Total s.d. P${rep.no}</span></div>
         ${hadir.map(p => {

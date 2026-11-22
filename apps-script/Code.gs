@@ -13,7 +13,7 @@
  *   3. Deploy > New deployment > Web app (Execute as: Me, Who has access: Anyone)
  */
 
-var APP_VERSION = '3.2.0';
+var APP_VERSION = '3.3.0';
 var SCHEMA = '2.7';
 var SESSION_DAYS = 30;
 var MAX_FAIL = 5;          // salah sandi berturut-turut
@@ -21,7 +21,7 @@ var LOCK_SECONDS = 600;    // lama kunci setelah salah sandi (detik)
 var HASH_ROUNDS = 120;
 var ROLES = ['admin', 'fasilitator', 'pemantau', 'kepsek', 'guru'];
 /* Akun guru (satu akun dipakai bersama per sekolah) hanya untuk masuk portal CERMAT. */
-var GURU_ACTIONS = ['bootstrap', 'me', 'logout', 'tesList', 'materiList', 'materiPdf'];
+var GURU_ACTIONS = ['bootstrap', 'me', 'logout', 'tesList', 'materiList', 'materiPdf', 'bintangSekolah'];
 /* Pendampingan yang memakai pretes & postes (satu Google Form per pendampingan). */
 var TES_NO = [1, 2, 3, 4, 5, 6, 7];
 var REF_NO = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22];   // refleksi: satu form per pendampingan
@@ -163,6 +163,7 @@ var ACTIONS = {
   materiSet: { fn: materiSet_ },
   materiPeta: { role: 'admin', fn: materiPeta_ },
   materiPdf: { fn: materiPdf_ },
+  bintangSekolah: { fn: bintangSekolah_ },
 
   listUsers: { role: 'admin', fn: listUsers_ },
   saveUser: { role: 'admin', fn: saveUser_ },
@@ -977,17 +978,51 @@ function rekapList_(user) {
   });
 }
 
-/* Reward (bintang) per peserta pada satu laporan: hanya peserta yang dicentang hadir, angka bulat >= 0. */
+/* Reward (bintang) per peserta pada satu laporan: hanya peserta yang dicentang hadir, angka bulat >= 0.
+ * Peserta hadir yang belum diisi dihitung 0 (sejak v3.9). */
 function rewardHadir_(rep) {
   var out = {};
   var src = rep && rep.reward && typeof rep.reward === 'object' ? rep.reward : {};
   (Array.isArray(rep && rep.hadir) ? rep.hadir : []).forEach(function (id) {
     var v = src[id];
-    if (v === '' || v === null || v === undefined) return;
-    var n = Math.floor(Number(v));
-    if (isFinite(n) && n >= 0) out[String(id)] = n;
+    var n = v === '' || v === null || v === undefined ? 0 : Math.floor(Number(v));
+    out[String(id)] = isFinite(n) && n >= 0 ? n : 0;
   });
   return out;
+}
+
+/* Perolehan bintang satu sekolah (kartu "Perolehan Bintang" untuk guru & kepala sekolah).
+ * Per peserta: bintang tiap pendampingan (hanya yang hadir) + total; laporan yang belum disahkan lengkap ditandai sementara. */
+function bintangSekolah_(req, user) {
+  var sid = user.peran === 'guru' || user.peran === 'kepsek' ? String(user.sekolahId || '') : String(req.sekolahId || '');
+  var sk = sekolahById_(sid);
+  var sendiri = user.peran === 'guru' || user.peran === 'kepsek';   // guru & kepsek: hanya sekolahnya sendiri
+  if (!sendiri && !seesSekolah_(user, sk.id)) throw err_('Sekolah ini tidak tersedia untuk akun Anda.', 'FORBIDDEN');
+  var sah = {};
+  rows_('Pengesahan').forEach(function (r) { if (r.aktif === 'ya' && String(r.key).split('_')[0] === sk.id) (sah[r.key] = sah[r.key] || []).push(r); });
+  var fasil = fasilList_(sk).map(function (u) { return u.toLowerCase(); });
+  var lap = rows_('Rekap').filter(function (r) { return r.sekolahId === sk.id && r.fileId; }).map(function (r) {
+    var list = sah[r.key] || [];
+    var allFasil = fasil.length > 0 && fasil.every(function (u) { return list.some(function (x) { return x.peran === 'fasil' && String(x.username).toLowerCase() === u; }); });
+    var ks = list.some(function (x) { return x.peran === 'ks'; });
+    return { no: Number(r.no), sah: r.status === 'lengkap' && allFasil && ks, reward: parseReward_(r.reward) };
+  }).filter(function (l) { return Object.keys(l.reward).length; }).sort(function (a, b) { return a.no - b.no; });
+  var peserta = rows_('Peserta').filter(function (p) { return p.sekolahId === sk.id; });
+  // nama ganda yang sudah digabung: bintangnya ikut nama yang dipertahankan
+  var ke = {};
+  peserta.forEach(function (p) { ke[p.id] = p.id; String(p.gabungan || '').split('|').filter(String).forEach(function (g) { ke[g] = p.id; }); });
+  var orang = peserta.map(function (p) {
+    var per = {}, total = 0;
+    lap.forEach(function (l) {
+      Object.keys(l.reward).forEach(function (id) {
+        if (ke[id] !== p.id) return;
+        per[l.no] = Math.max(per[l.no] || 0, Number(l.reward[id]) || 0);
+      });
+    });
+    Object.keys(per).forEach(function (n) { total += per[n]; });
+    return { nama: p.nama, jabatan: p.jabatan === 'Guru Kelas' && p.kelas ? 'Guru Kelas ' + p.kelas : String(p.jabatan || ''), per: per, total: total };
+  }).filter(function (o) { return Object.keys(o.per).length; });
+  return { sekolah: sk.nama, pendampingan: lap.map(function (l) { return { no: l.no, sah: l.sah }; }), orang: orang };
 }
 
 function parseReward_(s) {

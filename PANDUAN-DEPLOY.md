@@ -1,4 +1,4 @@
-# Panduan Pemasangan LAPORAN CERMAT v3.8.1
+# Panduan Pemasangan LAPORAN CERMAT v3.9
 
 Aplikasi terdiri dari dua bagian:
 
@@ -98,6 +98,10 @@ Pemasangan cukup **sekali**, sekitar 15 menit.
 4. Buka aplikasi dan tekan **Ctrl+Shift+R** sekali.
 
 Data lama tetap aman. Kolom baru di Sheets ditambahkan otomatis.
+
+**Catatan v3.9 (server 3.3.0) — Apps Script BERUBAH, deploy versi baru (tanpa izin baru):**
+- Langkah Reward: peserta yang tidak mendapat bintang cukup dibiarkan kosong (–), otomatis dihitung 0. Langkah dan laporan tetap lengkap. Tombol "Isi 0" dihapus.
+- Portal Pustaka CERMAT: akun Kepala Sekolah dan Guru mendapat kartu **Perolehan Bintang** (aksi server `bintangSekolah`). Isi: peringkat (nilai sama = peringkat sama), nama guru, total, bintang per pendampingan. "–" = tidak hadir; kolom bertanda * = laporan belum disahkan (sementara).
 
 **Catatan v3.8.1 — tanpa perubahan Apps Script:**
 - Kartu Refleksi peserta pindah ke langkah 3 ("Postes, Refleksi & Capaian"), tepat di atas Capaian indikator. Lampiran tidak lagi memuat refleksi.

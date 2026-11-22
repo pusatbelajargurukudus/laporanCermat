@@ -193,15 +193,15 @@
     (settings.program || 'CERMAT') + '. Informasi yang didapatkan merupakan bahan tindak lanjut bagi pemangku kebijakan, penyelenggara, serta pihak-pihak lain untuk tercapainya tujuan dari program.';
 
   /* ---------- Reward (bintang) ---------- */
-  /* Bintang per peserta pada laporan ini: hanya peserta yang dicentang hadir, angka bulat >= 0. */
+  /* Bintang per peserta pada laporan ini: hanya peserta yang dicentang hadir, angka bulat >= 0.
+   * Peserta hadir yang dikosongkan ("–") dihitung 0. */
   R.rewardHadir = function (rep) {
     const out = {};
     const src = (rep && rep.reward) || {};
     (rep.hadir || []).forEach(id => {
       const v = src[id];
-      if (v === '' || v === null || v === undefined) return;
-      const n = Math.floor(Number(v));
-      if (isFinite(n) && n >= 0) out[id] = n;
+      const n = v === '' || v === null || v === undefined ? 0 : Math.floor(Number(v));
+      out[id] = isFinite(n) && n >= 0 ? n : 0;
     });
     return out;
   };

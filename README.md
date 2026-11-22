@@ -1,4 +1,4 @@
-# LAPORAN CERMAT v3.8.1
+# LAPORAN CERMAT v3.9
 
 Aplikasi web untuk menyusun **laporan 22 pendampingan Program CERMAT** (Cerdas Numerasi dan Matematika Terapan), dipakai bersama oleh semua fasilitator.
 
@@ -9,7 +9,7 @@ Aplikasi web untuk menyusun **laporan 22 pendampingan Program CERMAT** (Cerdas N
 - **Pratinjau langsung untuk kepala sekolah.** Membuka laporan menampilkan kotak pengesahan dan halaman-halaman PDF di dalam aplikasi (juga di HP dan aplikasi yang diinstal), bisa diperbesar.
 - **Bisa diinstal (PWA).** Android/Chrome: menu ⋮ → *Instal aplikasi*. iPhone/Safari: *Bagikan → Tambahkan ke Layar Utama*. Laptop/Chrome: ikon instal di kolom alamat.
 - **Data sekolah dibagi.** Admin mendaftarkan sekolah dan memasangkan Fasilitator 1 & 2; fasilitator melengkapi nama & NIP kepala sekolah serta data guru.
-- **Reward bintang.** Fasilitator mengisi bintang setiap peserta yang hadir di langkah *Reward*; totalnya terakumulasi dari P1–P22, tercetak di PDF, dan bisa dipantau di menu *Total Reward*.
+- **Reward bintang.** Fasilitator mengisi bintang setiap peserta yang hadir di langkah *Reward*; totalnya terakumulasi dari P1–P22, tercetak di PDF, dan bisa dipantau di menu *Total Reward*. Kosong dihitung 0. Kepala sekolah dan guru melihat peringkat bintang guru di kartu *Perolehan Bintang* pada portal.
 - **Jurnal kegiatan ditandatangani** kepala sekolah dan fasilitator yang hadir.
 - **Isi laporan otomatis** dari *Silabus Pendampingan CERMAT (revisi 15-11-2026)*.
 - **Nilai pretes/postes** diimpor dari Google Form; hanya baris sekolah yang dilaporkan yang diambil.
