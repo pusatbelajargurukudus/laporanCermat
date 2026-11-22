@@ -13,7 +13,7 @@
  *   3. Deploy > New deployment > Web app (Execute as: Me, Who has access: Anyone)
  */
 
-var APP_VERSION = '3.5.2';
+var APP_VERSION = '3.6.0';
 var SCHEMA = '2.9';
 var SESSION_DAYS = 30;
 var MAX_FAIL = 5;          // salah sandi berturut-turut
@@ -1316,7 +1316,9 @@ function namaFasil_(s) {
 
 /* Ringkasan laporan (kartu Progres & status): laporan lama yang belum punya ringkasan dibaca sekali dari file-nya. */
 function ringkasBaris_(r, batas) {
-  if (!r.ringkas && r.fileId && (!batas || batas.n-- > 0)) {
+  var lama = false;
+  if (r.ringkas) { try { lama = (JSON.parse(r.ringkas) || {}).v !== 2; } catch (x) { lama = true; } }   // versi lama: tanpa nama pengisi refleksi
+  if ((!r.ringkas || lama) && r.fileId && (!batas || batas.n-- > 0)) {
     try {
       var rep = JSON.parse(DriveApp.getFileById(r.fileId).getBlob().getDataAsString('UTF-8'));
       r.ringkas = JSON.stringify(ringkas_(rep));
@@ -1422,9 +1424,10 @@ function ringkas_(rep) {
   Object.keys(c0).forEach(function (id) { if (c0[id]) cap[id] = String(c0[id]); });
   var a0 = rep && rep.capaianAuto && typeof rep.capaianAuto === 'object' ? rep.capaianAuto : {};
   Object.keys(a0).forEach(function (id) { if (a0[id]) auto.push(id); });
-  return { v: 1, hadir: (Array.isArray(rep && rep.hadir) ? rep.hadir : []).map(String),
+  return { v: 2, hadir: (Array.isArray(rep && rep.hadir) ? rep.hadir : []).map(String),
     tes: urut.map(function (k) { return tes[k]; }), cap: cap, auto: auto,
-    ref: rep && rep.refleksi ? Number(rep.refleksi.n) || 0 : 0 };
+    ref: rep && rep.refleksi ? Number(rep.refleksi.n) || 0 : 0,
+    refNama: rep && rep.refleksi && Array.isArray(rep.refleksi.nama) ? rep.refleksi.nama.map(String) : [] };
 }
 
 /* Kartu "Progres Pendampingan" (semua peran, hanya lihat).
@@ -1438,14 +1441,36 @@ function progresSekolah_(req, user) {
   var boleh = function (s) { return user.peran === 'fasilitator' ? fasilList_(s).some(function (u) { return u.toLowerCase() === me; }) : seesSekolah_(user, s.id); };
   if (!sendiri && !req.sekolahId) {
     // jumlah laporan per status (sama dengan Lihat Laporan): disahkan, menunggu pengesahan, draf
-    var jml = {}, skp = sahKeys_(), bts = { n: 25 }, cek = {};
-    rows_('Sekolah').forEach(function (s) { cek[s.id] = sahCek_(s); });
+    var jml = {}, skp = sahKeys_(), bts = { n: 25 }, cek = {}, ok = {}, nilai = {};
+    rows_('Sekolah').forEach(function (s) { cek[s.id] = sahCek_(s); if (boleh(s)) ok[s.id] = 1; });
     rows_('Rekap').forEach(function (r) {
-      if (!r.fileId || !laporanMulai_(r, ringkasBaris_(r, bts), skp)) return;
+      var g = r.fileId ? ringkasBaris_(r, bts) : {};
+      if (!r.fileId || !laporanMulai_(r, g, skp)) return;
       var o = jml[r.sekolahId] = jml[r.sekolahId] || { sah: 0, tunggu: 0, draf: 0 };
       o[cek[r.sekolahId] && cek[r.sekolahId](r) ? 'sah' : r.status === 'lengkap' ? 'tunggu' : 'draf']++;
+      // perbandingan antar sekolah (P1–P7): nilai setiap peserta dari laporan
+      if (!ok[r.sekolahId] || TES_NO.indexOf(Number(r.no)) < 0) return;
+      var t = (nilai[r.no] = nilai[r.no] || {})[r.sekolahId] = { pre: [], post: [] };
+      (g.tes || []).forEach(function (x) { if (isFinite(parseFloat(x.pre))) t.pre.push(Number(x.pre)); if (isFinite(parseFloat(x.post))) t.post.push(Number(x.post)); });
     });
-    return { pilih: rows_('Sekolah').filter(boleh).map(function (s) {
+    var stat = function (a) {
+      if (!a.length) return { n: 0 };
+      var sum = a.reduce(function (p, q) { return p + q; }, 0);
+      return { n: a.length, min: Math.min.apply(null, a), max: Math.max.apply(null, a), avg: Math.round(sum / a.length * 100) / 100 };
+    };
+    var namaSk = {}; rows_('Sekolah').forEach(function (s) { namaSk[s.id] = s.nama; });
+    var banding = {};
+    Object.keys(nilai).forEach(function (no) {
+      var semua = { pre: [], post: [] };
+      banding[no] = Object.keys(nilai[no]).map(function (sid) {
+        var t = nilai[no][sid];
+        semua.pre = semua.pre.concat(t.pre); semua.post = semua.post.concat(t.post);
+        return { id: sid, nama: namaSk[sid] || sid, pre: stat(t.pre), post: stat(t.post) };
+      }).filter(function (x) { return x.pre.n || x.post.n; }).sort(function (a, b) { return a.nama.localeCompare(b.nama); });
+      if (!banding[no].length) { delete banding[no]; return; }
+      banding[no].push({ id: '', nama: 'Semua sekolah', pre: stat(semua.pre), post: stat(semua.post), semua: true });
+    });
+    return { banding: banding, pilih: rows_('Sekolah').filter(boleh).map(function (s) {
       var j = jml[s.id] || { sah: 0, tunggu: 0, draf: 0 };
       return { id: s.id, nama: s.nama, urutan: Number(s.urutan) || 0, laporan: j.sah + j.tunggu + j.draf, status: j,
         saya: fasilList_(s).some(function (u) { return u.toLowerCase() === me; }) };
@@ -1477,10 +1502,17 @@ function progresSekolah_(req, user) {
       rataPre: r.rataPre === '' ? null : Number(r.rataPre), rataPost: r.rataPost === '' ? null : Number(r.rataPost),
       ada: !!r.ringkas, hadir: Object.keys(hadir),
       tes: (g.tes || []).map(function (t) { return { id: namaKe[kunci(t.nama)] || '', nama: t.nama, pre: t.pre, post: t.post }; }),
-      cap: g.cap || {}, auto: g.auto || [], ref: g.ref || 0, reward: rw };
+      cap: g.cap || {}, auto: g.auto || [], ref: g.ref || 0, reward: rw,
+      refNama: (g.refNama || []).map(function (nm) { return { id: namaKe[kunci(nm)] || '', nama: nm }; }) };
   }).sort(function (a, b) { return a.no - b.no; });
-  return { sekolah: { id: sk.id, nama: sk.nama }, sendiri: sendiri,
-    peserta: peserta.map(function (p) { return { id: p.id, nama: p.nama, jabatan: p.jabatan === 'Guru Kelas' && p.kelas ? 'Guru Kelas ' + p.kelas : String(p.jabatan || '') }; }),
+  // yang sedang dibuka hari ini untuk sekolah ini
+  var buka = {};
+  rows_('TesBuka').forEach(function (b) { if (b.sekolahId === sk.id && tesAktif_(b)) (buka[b.no] = buka[b.no] || {})[b.jenis] = b.sampai; });
+  // pendampingan khusus kelas tertentu (Micro Teaching, Observasi, Review RPM kelas …): yang diharapkan ikut hanya guru kelas itu + kepala sekolah
+  var kelompok = {};
+  Object.keys(SILABUS_IND_).forEach(function (no) { var m = String(SILABUS_IND_[no].j || '').match(/Kelas (\d) dan (\d)/); if (m) kelompok[no] = [m[1], m[2]]; });
+  return { sekolah: { id: sk.id, nama: sk.nama }, sendiri: sendiri, buka: buka, kelompok: kelompok,
+    peserta: peserta.map(function (p) { return { id: p.id, nama: p.nama, jabatan: p.jabatan === 'Guru Kelas' && p.kelas ? 'Guru Kelas ' + p.kelas : String(p.jabatan || ''), j: String(p.jabatan || ''), k: String(p.kelas || '') }; }),
     laporan: laporan };
 }
 

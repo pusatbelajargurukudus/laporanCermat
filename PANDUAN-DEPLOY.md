@@ -1,4 +1,4 @@
-# Panduan Pemasangan LAPORAN CERMAT v3.13.1
+# Panduan Pemasangan LAPORAN CERMAT v3.14
 
 Aplikasi terdiri dari dua bagian:
 
@@ -98,6 +98,11 @@ Pemasangan cukup **sekali**, sekitar 15 menit.
 4. Buka aplikasi dan tekan **Ctrl+Shift+R** sekali.
 
 Data lama tetap aman. Kolom baru di Sheets ditambahkan otomatis.
+
+**Catatan v3.14 (server 3.6.0) — hanya Apps Script berubah, deploy versi baru (portal v31 ikut diperbarui):**
+- Progres Pendampingan: perbandingan nilai antar sekolah per pendampingan (P1–P7) di halaman pilih sekolah (pengganti "Lihat hasil"), tanda "Sedang dibuka" pada pendampingan yang berlangsung hari ini, dan tombol **Pengisian** (siapa sudah/belum mengerjakan pretes, postes, refleksi; P khusus kelas: guru kelas itu + kepala sekolah).
+- Ringkasan laporan versi 2 (menyimpan nama pengisi refleksi); laporan lama diperbarui otomatis saat dibuka.
+- Portal: kartu Pretes, Postes & Refleksi tidak tampil di akun pemantau; tombol Lihat hasil dihapus dari akun admin.
 
 **Catatan v3.13.1 (server 3.5.2) — hanya Apps Script berubah, deploy versi baru:**
 - Kartu Progres (pilih sekolah) menampilkan jumlah laporan per status: disahkan · menunggu pengesahan · draf.
