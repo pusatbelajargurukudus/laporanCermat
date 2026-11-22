@@ -13,7 +13,7 @@
  *   3. Deploy > New deployment > Web app (Execute as: Me, Who has access: Anyone)
  */
 
-var APP_VERSION = '3.4.0';
+var APP_VERSION = '3.4.1';
 var SCHEMA = '2.8';
 var SESSION_DAYS = 30;
 var MAX_FAIL = 5;          // salah sandi berturut-turut
@@ -1060,17 +1060,19 @@ function ringkas_(rep) {
  * Laporan lama yang belum punya ringkasan dibaca sekali dari file-nya lalu disimpan. */
 function progresSekolah_(req, user) {
   var sendiri = user.peran === 'guru' || user.peran === 'kepsek';
+  var me = String(user.username || '').toLowerCase();
+  // fasilitator hanya sekolah binaannya; admin & pemantau semua sekolah
+  var boleh = function (s) { return user.peran === 'fasilitator' ? fasilList_(s).some(function (u) { return u.toLowerCase() === me; }) : seesSekolah_(user, s.id); };
   if (!sendiri && !req.sekolahId) {
-    var me = String(user.username || '').toLowerCase();
     var jml = {};
     rows_('Rekap').forEach(function (r) { if (r.fileId) jml[r.sekolahId] = (jml[r.sekolahId] || 0) + 1; });
-    return { pilih: rows_('Sekolah').filter(function (s) { return seesSekolah_(user, s.id); }).map(function (s) {
+    return { pilih: rows_('Sekolah').filter(boleh).map(function (s) {
       return { id: s.id, nama: s.nama, urutan: Number(s.urutan) || 0, laporan: jml[s.id] || 0,
         saya: fasilList_(s).some(function (u) { return u.toLowerCase() === me; }) };
     }).sort(function (a, b) { return (b.saya - a.saya) || (a.urutan - b.urutan) || a.nama.localeCompare(b.nama); }) };
   }
   var sk = sekolahById_(sendiri ? String(user.sekolahId || '') : String(req.sekolahId || ''));
-  if (!sendiri && !seesSekolah_(user, sk.id)) throw err_('Sekolah ini tidak tersedia untuk akun Anda.', 'FORBIDDEN');
+  if (!sendiri && !boleh(sk)) throw err_('Sekolah ini tidak tersedia untuk akun Anda.', 'FORBIDDEN');
   var sahkah = sahCek_(sk);
   var peserta = rows_('Peserta').filter(function (p) { return p.sekolahId === sk.id; });
   var ke = {}, namaKe = {};

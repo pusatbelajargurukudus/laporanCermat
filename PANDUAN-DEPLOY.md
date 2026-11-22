@@ -1,4 +1,4 @@
-# Panduan Pemasangan LAPORAN CERMAT v3.10
+# Panduan Pemasangan LAPORAN CERMAT v3.10.1
 
 Aplikasi terdiri dari dua bagian:
 
@@ -98,6 +98,9 @@ Pemasangan cukup **sekali**, sekitar 15 menit.
 4. Buka aplikasi dan tekan **Ctrl+Shift+R** sekali.
 
 Data lama tetap aman. Kolom baru di Sheets ditambahkan otomatis.
+
+**Catatan v3.10.1 (server 3.4.1) — hanya Apps Script berubah, deploy versi baru:**
+- Progres Pendampingan: fasilitator hanya melihat sekolah binaannya sendiri (server menolak sekolah lain). Admin dan pemantau tetap semua sekolah.
 
 **Catatan v3.10 (server 3.4.0) — Apps Script BERUBAH, deploy versi baru (tanpa izin baru):**
 - Kartu baru **Progres Pendampingan** di Pustaka CERMAT untuk semua akun (hanya lihat), aksi server `progresSekolah`: rekap semua pendampingan (peringkat bintang, grafik rata-rata pretes → postes) dan per pendampingan tombol Pretes & Postes (nilai per peserta), Capaian (indikator 5 tingkat), Bintang. Admin, pemantau, dan fasil memilih sekolah dulu.
