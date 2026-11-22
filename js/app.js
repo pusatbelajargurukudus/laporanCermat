@@ -1544,9 +1544,9 @@
     if (S.imp && S.impMode === 'ref') return h + impMapping(rep, s) + '</div>';
     const btnForm = label => `<button class="btn ${R0 ? '' : 'pri'}" data-act="ref-form"${S.impForm ? ' disabled' : ''}>${S.impForm ? '<span class="spin"></span>Mengambil jawaban…' : ic('download') + label}</button>`;
     if (!R0) {
-      if (adaForm) return h + `<p style="margin-top:-4px">Jawaban refleksi <b>${esc(s.nama)}</b> masuk <b>otomatis dari Google Form</b>. Aplikasi menyusun rangkuman analisis dan kesimpulan yang tercetak di laporan; peserta yang mengisi dicentang hadir.</p>${otoInfo(rep, 'ref')}</div>`;
+      if (adaForm) return h + `<p style="margin-top:-4px">Jawaban refleksi <b>${esc(s.nama)}</b> masuk <b>otomatis dari Google Form</b>. Capaian indikator dihitung dari jawaban ini (bagian Capaian Indikator di PDF); kesimpulan dan rangkuman tercetak di Lampiran; peserta yang mengisi dicentang hadir.</p>${otoInfo(rep, 'ref')}</div>`;
       if (readOnly) return h + '<p class="muted" style="margin:0">Refleksi belum diambil.</p></div>';
-      return h + `<p style="margin-top:-4px">Ambil jawaban refleksi <b>${esc(s.nama)}</b> langsung dari Google Form. Aplikasi menyusun rangkuman analisis dan kesimpulan yang tercetak di laporan; peserta yang mengisi dicentang hadir.</p>
+      return h + `<p style="margin-top:-4px">Ambil jawaban refleksi <b>${esc(s.nama)}</b> langsung dari Google Form. Capaian indikator dihitung dari jawaban ini (bagian Capaian Indikator di PDF); kesimpulan dan rangkuman tercetak di Lampiran; peserta yang mengisi dicentang hadir.</p>
         <div class="row">${btnForm('Ambil refleksi dari Google Form')}</div></div>`;
     }
     const hadir = (rep.hadir || []).length;
@@ -1559,7 +1559,7 @@
         return `<label class="f" style="margin-top:14px">Arti skor ${o.min}–${o.max} <span class="small muted">(tidak ditemukan di form; diketik sekali untuk laporan ini)</span></label>
           <input type="text" data-ref-arti value="${esc(R0.arti || '')}" placeholder="mis. ${o.min} = tidak setuju, ${o.max} = sangat setuju">`;
       })()}
-      <label class="f" style="margin-top:14px">Kesimpulan refleksi <span class="small muted">(tercetak di laporan, boleh diedit)</span></label>
+      <label class="f" style="margin-top:14px">Kesimpulan refleksi <span class="small muted">(tercetak di Lampiran, boleh diedit)</span></label>
       <textarea data-ref-kes style="min-height:150px"${readOnly ? ' readonly' : ''}>${esc(R0.kesimpulan || '')}</textarea>
       ${(rows => `<details class="adv"><summary>Rincian per pertanyaan (${rows.length})</summary><table class="simple"><tbody>
         ${rows.map(([q, k]) => `<tr><td style="width:42%"><b>${esc(q)}</b></td><td class="small">${esc(k)}</td></tr>`).join('')}</tbody></table></details>`)([].concat(...R0.items.map(o => I.refBaris(o))))}

@@ -455,16 +455,39 @@
       ], [[R.fmt(st.pre) + ' (n=' + st.preN + ')', R.fmt(st.post) + ' (n=' + st.postN + ')', R.fmt(st.selisih), st.persen === null ? '-' : R.fmt(st.persen) + '%']], { size: 10 });
     }
 
-    // Refleksi peserta (dari Google Form refleksi): kesimpulan + rekap per pertanyaan
+    // Capaian indikator: penilaian diri peserta dari data refleksi (rincian refleksi ada di Lampiran)
     const rf = rep.refleksi;
     if (rf && rf.n) {
-      w.h1(++n, 'Refleksi Peserta');
-      w.para((rf.kesimpulan || rf.kesAuto || '').trim() || '-', { first: 28 });
-      if ((rf.items || []).length && window.Importer && window.Importer.refRingkas) {
-        const I = window.Importer, baris = [];
-        rf.items.forEach(o => (I.refBaris ? I.refBaris(o) : [[o.judul, I.refRingkas(o)]]).forEach(r => baris.push(r)));
-        w.table([{ t: 'Pertanyaan / pernyataan refleksi', w: 0.45 }, { t: 'Rangkuman jawaban', w: 0.55 }], baris, { size: 9.5 });
+      const I = window.Importer, NAMA = I && I.capaianNama ? I.capaianNama(rf.items) : { sangat: 'Sangat memahami', paham: 'Memahami', cukup: 'Cukup', kurang: 'Kurang', belum: 'Belum memahami' };
+      const auto = rep.capaianAuto || {}, ind = R.indikatorList(rep.no);
+      const nHadir = R.hadirList(rep, school).length;
+      const pct = nHadir ? Math.round(rf.n * 100 / nHadir) : 0;
+      const kecil = t => String(t || '').toLowerCase();
+      w.h1(++n, 'Capaian Indikator (Penilaian Diri Peserta)');
+      w.para('Capaian indikator berikut merupakan penilaian diri (self-assessment) peserta yang diperoleh dari data hasil refleksi pendampingan. Refleksi diisi oleh ' + rf.n + ' peserta' +
+        (nHadir ? ' dari ' + nHadir + ' peserta yang hadir (' + pct + '%)' : '') + ' melalui Google Form. Rata-rata skor pernyataan refleksi yang sesuai dengan setiap indikator dipetakan ke lima tingkat capaian (skala 1–5): 4,5–5 ' +
+        kecil(NAMA.sangat) + '; 3,5–4,4 ' + kecil(NAMA.paham) + '; 2,5–3,4 ' + kecil(NAMA.cukup) + '; 1,5–2,4 ' + kecil(NAMA.kurang) + '; di bawah 1,5 ' + kecil(NAMA.belum) + '.', { first: 28 });
+      const rows = ind.map((i, k) => {
+        const a = auto[i.id], c = R.capaianNorm(rep.capaian[i.id]);
+        return a ? [k + 1, i.teks, (a.dasar || []).join('; ') || '-', String(a.avg).replace('.', ',') + (a.satuSkala ? ' dari ' + a.max : ''), NAMA[c] || c]
+          : [k + 1, i.teks, '-', '-', (NAMA[c] || c) + ' (ditetapkan fasilitator)'];
+      });
+      w.table([{ t: 'No', w: 0.06, align: 'center' }, { t: 'Indikator', w: 0.32 }, { t: 'Pernyataan refleksi acuan', w: 0.3 }, { t: 'Rata-rata skor', w: 0.13, align: 'center' }, { t: 'Capaian', w: 0.19 }], rows, { size: 9.5 });
+      // indikator tertinggi & terendah, serta yang perlu penguatan
+      const dinilai = ind.filter(i => auto[i.id]).map(i => ({ i, a: auto[i.id], x5: 1 + 4 * ((auto[i.id].avg - 1) / Math.max(1, (auto[i.id].max || 5) - 1)) }));
+      const kutip = t => '“' + String(t).replace(/^Peserta\s+/i, '').replace(/\.$/, '') + '”';
+      const kal = [];
+      if (dinilai.length >= 2) {
+        const urut = dinilai.slice().sort((p, q) => q.x5 - p.x5);
+        const hi = urut[0], lo = urut[urut.length - 1];
+        if (hi.x5 - lo.x5 >= 0.05) kal.push('Capaian tertinggi pada indikator ' + kutip(hi.i.teks) + ' (rata-rata ' + String(hi.a.avg).replace('.', ',') + '), sedangkan yang terendah pada indikator ' + kutip(lo.i.teks) + ' (rata-rata ' + String(lo.a.avg).replace('.', ',') + ').');
+        else kal.push('Rata-rata skor semua indikator yang dinilai relatif sama.');
       }
+      const lemah = ind.filter(i => ['cukup', 'kurang', 'belum'].includes(R.capaianNorm(rep.capaian[i.id])));
+      if (lemah.length) kal.push((lemah.length === 1 ? 'Indikator ' : 'Indikator ') + R.gabung(lemah.map(i => kutip(i.teks))) + ' masih berada pada tingkat ' + R.gabung([...new Set(lemah.map(i => kecil(NAMA[R.capaianNorm(rep.capaian[i.id])])))]) + ' sehingga perlu penguatan pada pendampingan berikutnya.');
+      else if (dinilai.length) kal.push('Seluruh indikator berada pada tingkat ' + kecil(NAMA.paham) + ' atau lebih tinggi.');
+      if (kal.length) w.para(kal.join(' '), { first: 28 });
+      w.para('Rincian jawaban refleksi peserta dimuat pada Lampiran.', { first: 28, font: fonts.ital });
     }
 
     w.h1(++n, 'Evaluasi');
@@ -577,6 +600,17 @@
       w.y = maxY + 6;
     }
     if ((L.jurnalScan || []).length) await w.images(await img(L.jurnalScan), { cols: 1, maxH: H - MT - MB - 40 });
+
+    // Rekap refleksi peserta: kesimpulan + rangkuman setiap pertanyaan (sumber data capaian)
+    if (rf && rf.n) {
+      w.h2(letter(), 'Rekap Refleksi Peserta', true);
+      w.para((rf.kesimpulan || rf.kesAuto || '').trim() || '-', { first: 28 });
+      if ((rf.items || []).length && window.Importer && window.Importer.refRingkas) {
+        const I = window.Importer, baris = [];
+        rf.items.forEach(o => (I.refBaris ? I.refBaris(o) : [[o.judul, I.refRingkas(o)]]).forEach(r => baris.push(r)));
+        w.table([{ t: 'Pertanyaan / pernyataan refleksi', w: 0.45 }, { t: 'Rangkuman jawaban', w: 0.55 }], baris, { size: 9.5 });
+      }
+    }
 
     const portoKeys = sil.lk.concat(Object.keys(L.portofolio || {}).filter(k => !sil.lk.includes(k)));
     const portoFilled = portoKeys.filter(k => ((L.portofolio || {})[k] || []).length);
