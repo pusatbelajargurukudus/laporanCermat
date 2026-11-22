@@ -1,12 +1,12 @@
 /* Service worker: aplikasi tetap bisa dibuka saat sinyal lemah/offline.
  * Naikkan CACHE_VERSION setiap kali ada file yang diubah. */
-const CACHE_VERSION = 'laporan-cermat-v30';
-const FILES = ['./', 'index.html', 'css/app.css?v=30', 'manifest.webmanifest', 'fonts/fonts.css?v=1',
+const CACHE_VERSION = 'laporan-cermat-v31';
+const FILES = ['./', 'index.html', 'css/app.css?v=31', 'manifest.webmanifest', 'fonts/fonts.css?v=1',
   'fonts/jakarta-400.woff2', 'fonts/jakarta-500.woff2', 'fonts/jakarta-600.woff2', 'fonts/jakarta-700.woff2', 'fonts/jakarta-800.woff2',
   'fonts/cormorant-600.woff2', 'fonts/cormorant-500i.woff2', 'fonts/cormorant-600i.woff2',
   'icons/logo-mark.png', 'icons/logo-cermat.png', 'icons/favicon-64.png', 'icons/icon-192.png',
   'vendor/pdf-lib.min.js', 'vendor/jszip.min.js', 'vendor/qrcode.js',
-  'js/silabus.js?v=30', 'js/db.js?v=30', 'js/api.js?v=30', 'js/importer.js?v=30', 'js/report.js?v=30', 'js/pdf.js?v=30', 'js/app.js?v=30'];
+  'js/silabus.js?v=31', 'js/db.js?v=31', 'js/api.js?v=31', 'js/importer.js?v=31', 'js/report.js?v=31', 'js/pdf.js?v=31', 'js/app.js?v=31'];
 const FONT_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com'];
 
 self.addEventListener('install', e => {

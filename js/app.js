@@ -257,7 +257,7 @@
     const l = S.local.get(key);
     if (l && l.dirty) return l.status;
     const r = S.rekap.get(key);
-    return r ? (r.status === 'lengkap' ? 'lengkap' : 'draf') : 'kosong';
+    return r ? (r.status === 'lengkap' ? 'lengkap' : r.mulai === false ? 'kosong' : 'draf') : 'kosong';   // belum ada pretes/refleksi: belum dihitung
   }
   /* Pengesahan: Fasilitator 1 & 2 (masing-masing) lalu Kepala Sekolah. */
   function sahState(sid, no) {
@@ -462,7 +462,7 @@
     if (S.cur && S.cur.key === rep.key) apply(S.cur);
     const prev = S.rekap.get(rep.key) || {};
     S.rekap.set(rep.key, Object.assign({}, prev, { key: rep.key, sekolahId: rep.sekolahId, no: rep.no, status: meta.status, tanggal: meta.tanggal,
-      updatedAt: res.updatedAt, updatedBy: res.updatedBy, version: res.version, reward: R.rewardHadir(rep) }));
+      updatedAt: res.updatedAt, updatedBy: res.updatedBy, version: res.version, reward: R.rewardHadir(rep), mulai: meta.status === 'lengkap' || R.mulai(rep) }));
     if (!(latest && latest._dirty)) S.local.delete(rep.key);
     cacheBoot();
   }
@@ -1957,7 +1957,7 @@
       const tot = sk.length * 22;
       let lengkap = 0, draf = 0, tunggu = 0;
       sk.forEach(s => window.SILABUS.forEach(p => { const st = statusOf(s.id, p.no); if (st === 'lengkap') lengkap++; else if (st === 'draf') draf++; else if (st === 'tunggu') tunggu++; }));
-      const last = sid => { let b = null; S.rekap.forEach(r => { if (r.sekolahId === sid && (!b || r.updatedAt > b.updatedAt)) b = r; }); return b; };
+      const last = sid => { let b = null; S.rekap.forEach(r => { if (r.sekolahId === sid && contentOf(sid, r.no) !== 'kosong' && (!b || r.updatedAt > b.updatedAt)) b = r; }); return b; };
       const rows = sk.map(s => {
         const l = doneOf(s.id), d = window.SILABUS.filter(p => statusOf(s.id, p.no) === 'draf').length, tg = window.SILABUS.filter(p => statusOf(s.id, p.no) === 'tunggu').length, lr = last(s.id);
         return `<tr data-href="#/lihat/${s.id}" class="clickrow"><td><div class="row" style="flex-wrap:nowrap;gap:12px">${ring(l, 22, 44)}<div><b>${esc(s.nama)}</b><div class="tiny muted">${esc(s.ksNama || 'Kepala sekolah belum diisi')}</div></div></div></td>

@@ -13,7 +13,7 @@
  *   3. Deploy > New deployment > Web app (Execute as: Me, Who has access: Anyone)
  */
 
-var APP_VERSION = '3.5.0';
+var APP_VERSION = '3.5.1';
 var SCHEMA = '2.9';
 var SESSION_DAYS = 30;
 var MAX_FAIL = 5;          // salah sandi berturut-turut
@@ -1314,12 +1314,41 @@ function namaFasil_(s) {
   return fasilList_(s).map(function (u) { var x = findUser_(u); return x ? x.nama : u; }).join(' dan ') || 'admin';
 }
 
+/* Ringkasan laporan (kartu Progres & status): laporan lama yang belum punya ringkasan dibaca sekali dari file-nya. */
+function ringkasBaris_(r, batas) {
+  if (!r.ringkas && r.fileId && (!batas || batas.n-- > 0)) {
+    try {
+      var rep = JSON.parse(DriveApp.getFileById(r.fileId).getBlob().getDataAsString('UTF-8'));
+      r.ringkas = JSON.stringify(ringkas_(rep));
+      update_('Rekap', r._row, { ringkas: r.ringkas });
+    } catch (x) { /* dicoba lagi lain kali */ }
+  }
+  try { return JSON.parse(r.ringkas || '{}') || {}; } catch (x) { return {}; }
+}
+
+/* Pendampingan dianggap sudah berlangsung bila sudah ada pretes (P1–P7) atau jawaban refleksi (P8–P22),
+ * atau laporannya sudah lengkap / mulai disahkan. Isian coba-coba fasil tidak dihitung. */
+function laporanMulai_(r, g, sahKeys) {
+  if (!r.fileId) return false;
+  if (r.status === 'lengkap' || (sahKeys && sahKeys[r.key])) return true;
+  if (TES_NO.indexOf(Number(r.no)) >= 0) return (r.rataPre !== '' && r.rataPre !== undefined && r.rataPre !== null) || (g.tes || []).some(function (t) { return t.pre !== null && t.pre !== undefined; });
+  return (Number(g.ref) || 0) > 0;
+}
+
+function sahKeys_() {
+  var o = {};
+  rows_('Pengesahan').forEach(function (r) { if (r.aktif === 'ya') o[r.key] = 1; });
+  return o;
+}
+
 function rekapList_(user) {
+  var sk = sahKeys_(), batas = { n: 25 };
   return rows_('Rekap').filter(function (r) { return seesSekolah_(user, r.sekolahId); }).map(function (r) {
+    var mulai = laporanMulai_(r, r.rataPre !== '' && r.status !== 'lengkap' && !sk[r.key] && TES_NO.indexOf(Number(r.no)) >= 0 ? {} : ringkasBaris_(r, batas), sk);
     return { key: r.key, sekolahId: r.sekolahId, no: Number(r.no), status: r.status, tanggal: r.tanggal,
       rataPre: r.rataPre, rataPost: r.rataPost, pdfId: r.pdfId, pdfAt: Number(r.pdfAt) || 0,
       updatedAt: Number(r.updatedAt) || 0, updatedBy: r.updatedBy, version: Number(r.version) || 0,
-      reward: parseReward_(r.reward), oto: parseReward_(r.oto) };
+      reward: parseReward_(r.reward), oto: parseReward_(r.oto), mulai: mulai };
   });
 }
 
@@ -1408,8 +1437,8 @@ function progresSekolah_(req, user) {
   // fasilitator hanya sekolah binaannya; admin & pemantau semua sekolah
   var boleh = function (s) { return user.peran === 'fasilitator' ? fasilList_(s).some(function (u) { return u.toLowerCase() === me; }) : seesSekolah_(user, s.id); };
   if (!sendiri && !req.sekolahId) {
-    var jml = {};
-    rows_('Rekap').forEach(function (r) { if (r.fileId) jml[r.sekolahId] = (jml[r.sekolahId] || 0) + 1; });
+    var jml = {}, skp = sahKeys_(), bts = { n: 25 };
+    rows_('Rekap').forEach(function (r) { if (r.fileId && laporanMulai_(r, ringkasBaris_(r, bts), skp)) jml[r.sekolahId] = (jml[r.sekolahId] || 0) + 1; });
     return { pilih: rows_('Sekolah').filter(boleh).map(function (s) {
       return { id: s.id, nama: s.nama, urutan: Number(s.urutan) || 0, laporan: jml[s.id] || 0,
         saya: fasilList_(s).some(function (u) { return u.toLowerCase() === me; }) };
@@ -1427,18 +1456,12 @@ function progresSekolah_(req, user) {
     namaKe[kunci(p.nama)] = p.id;
     String(p.alias || '').split('|').filter(String).forEach(function (a) { if (!namaKe[kunci(a)]) namaKe[kunci(a)] = p.id; });
   });
-  var lap = rows_('Rekap').filter(function (r) { return r.sekolahId === sk.id && r.fileId; });
-  lap.forEach(function (r) {
-    if (r.ringkas) return;
-    try {
-      var rep = JSON.parse(DriveApp.getFileById(r.fileId).getBlob().getDataAsString('UTF-8'));
-      r.ringkas = JSON.stringify(ringkas_(rep));
-      update_('Rekap', r._row, { ringkas: r.ringkas });
-    } catch (x) { r.ringkas = ''; }
-  });
-  var laporan = lap.map(function (r) {
-    var g = {};
-    try { g = JSON.parse(r.ringkas || '{}') || {}; } catch (x) { g = {}; }
+  var skk = sahKeys_();
+  // hanya pendampingan yang sudah berlangsung (ada pretes / refleksi); isian coba-coba fasil tidak ditampilkan
+  var lap = rows_('Rekap').filter(function (r) { return r.sekolahId === sk.id && r.fileId; })
+    .map(function (r) { return { r: r, g: ringkasBaris_(r) }; }).filter(function (x) { return laporanMulai_(x.r, x.g, skk); });
+  var laporan = lap.map(function (x) {
+    var r = x.r, g = x.g;
     var hadir = {};
     (g.hadir || []).forEach(function (id) { if (ke[id]) hadir[ke[id]] = 1; });
     var rw = {}, r0 = parseReward_(r.reward);

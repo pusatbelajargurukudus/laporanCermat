@@ -1,4 +1,4 @@
-# Panduan Pemasangan LAPORAN CERMAT v3.12
+# Panduan Pemasangan LAPORAN CERMAT v3.13
 
 Aplikasi terdiri dari dua bagian:
 
@@ -98,6 +98,9 @@ Pemasangan cukup **sekali**, sekitar 15 menit.
 4. Buka aplikasi dan tekan **Ctrl+Shift+R** sekali.
 
 Data lama tetap aman. Kolom baru di Sheets ditambahkan otomatis.
+
+**Catatan v3.13 (server 3.5.1) — Apps Script BERUBAH, deploy versi baru (tanpa izin baru):**
+- Laporan baru dihitung bila pendampingan sudah berlangsung: ada **pretes** (P1–P7) atau **jawaban refleksi** (P8–P22), atau laporan sudah lengkap / mulai disahkan. Isian coba-coba fasil tetap tersimpan tetapi berstatus "belum" dan tidak ikut dihitung di Lihat Laporan, Unduh Laporan, kolom Terakhir diperbarui, dan kartu Progres Pendampingan.
 
 **Catatan v3.12 — tanpa perubahan Apps Script:**
 - PDF bagian "Refleksi Peserta" diganti **Capaian Indikator (Penilaian Diri Peserta)**: paragraf bahwa capaian adalah self-assessment dari data refleksi (jumlah pengisi, pemetaan skor ke 5 tingkat), tabel No | Indikator | Pernyataan refleksi acuan | Rata-rata skor | Capaian (indikator tanpa pernyataan cocok: "ditetapkan fasilitator"), lalu indikator tertinggi/terendah dan yang perlu penguatan.

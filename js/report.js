@@ -248,7 +248,9 @@
   };
 
   R.isComplete = (rep, school) => R.checklist(rep, school).every(x => x.ok || !x.wajib);
-  R.status = (rep, school) => !rep ? 'kosong' : (R.isComplete(rep, school) ? 'lengkap' : 'draf');
+  /* Pendampingan sudah berlangsung: ada pretes (P1–P7) atau jawaban refleksi (P8–P22). Isian coba-coba tidak dihitung. */
+  R.mulai = rep => !!rep && (R.hasTes(rep.no) ? !!(rep.tes && (rep.tes.rows || []).some(r => r.jenis === 'pre')) : !!(rep.refleksi && rep.refleksi.n > 0));
+  R.status = (rep, school) => !rep ? 'kosong' : (R.isComplete(rep, school) ? 'lengkap' : R.mulai(rep) ? 'draf' : 'kosong');
 
   R.fileName = function (rep, school) {
     const slug = s => String(s || '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '');
