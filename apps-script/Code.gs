@@ -13,7 +13,7 @@
  *   3. Deploy > New deployment > Web app (Execute as: Me, Who has access: Anyone)
  */
 
-var APP_VERSION = '3.5.1';
+var APP_VERSION = '3.5.2';
 var SCHEMA = '2.9';
 var SESSION_DAYS = 30;
 var MAX_FAIL = 5;          // salah sandi berturut-turut
@@ -1437,10 +1437,17 @@ function progresSekolah_(req, user) {
   // fasilitator hanya sekolah binaannya; admin & pemantau semua sekolah
   var boleh = function (s) { return user.peran === 'fasilitator' ? fasilList_(s).some(function (u) { return u.toLowerCase() === me; }) : seesSekolah_(user, s.id); };
   if (!sendiri && !req.sekolahId) {
-    var jml = {}, skp = sahKeys_(), bts = { n: 25 };
-    rows_('Rekap').forEach(function (r) { if (r.fileId && laporanMulai_(r, ringkasBaris_(r, bts), skp)) jml[r.sekolahId] = (jml[r.sekolahId] || 0) + 1; });
+    // jumlah laporan per status (sama dengan Lihat Laporan): disahkan, menunggu pengesahan, draf
+    var jml = {}, skp = sahKeys_(), bts = { n: 25 }, cek = {};
+    rows_('Sekolah').forEach(function (s) { cek[s.id] = sahCek_(s); });
+    rows_('Rekap').forEach(function (r) {
+      if (!r.fileId || !laporanMulai_(r, ringkasBaris_(r, bts), skp)) return;
+      var o = jml[r.sekolahId] = jml[r.sekolahId] || { sah: 0, tunggu: 0, draf: 0 };
+      o[cek[r.sekolahId] && cek[r.sekolahId](r) ? 'sah' : r.status === 'lengkap' ? 'tunggu' : 'draf']++;
+    });
     return { pilih: rows_('Sekolah').filter(boleh).map(function (s) {
-      return { id: s.id, nama: s.nama, urutan: Number(s.urutan) || 0, laporan: jml[s.id] || 0,
+      var j = jml[s.id] || { sah: 0, tunggu: 0, draf: 0 };
+      return { id: s.id, nama: s.nama, urutan: Number(s.urutan) || 0, laporan: j.sah + j.tunggu + j.draf, status: j,
         saya: fasilList_(s).some(function (u) { return u.toLowerCase() === me; }) };
     }).sort(function (a, b) { return (b.saya - a.saya) || (a.urutan - b.urutan) || a.nama.localeCompare(b.nama); }) };
   }

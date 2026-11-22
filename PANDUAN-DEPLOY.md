@@ -1,4 +1,4 @@
-# Panduan Pemasangan LAPORAN CERMAT v3.13
+# Panduan Pemasangan LAPORAN CERMAT v3.13.1
 
 Aplikasi terdiri dari dua bagian:
 
@@ -98,6 +98,9 @@ Pemasangan cukup **sekali**, sekitar 15 menit.
 4. Buka aplikasi dan tekan **Ctrl+Shift+R** sekali.
 
 Data lama tetap aman. Kolom baru di Sheets ditambahkan otomatis.
+
+**Catatan v3.13.1 (server 3.5.2) — hanya Apps Script berubah, deploy versi baru:**
+- Kartu Progres (pilih sekolah) menampilkan jumlah laporan per status: disahkan · menunggu pengesahan · draf.
 
 **Catatan v3.13 (server 3.5.1) — Apps Script BERUBAH, deploy versi baru (tanpa izin baru):**
 - Laporan baru dihitung bila pendampingan sudah berlangsung: ada **pretes** (P1–P7) atau **jawaban refleksi** (P8–P22), atau laporan sudah lengkap / mulai disahkan. Isian coba-coba fasil tetap tersimpan tetapi berstatus "belum" dan tidak ikut dihitung di Lihat Laporan, Unduh Laporan, kolom Terakhir diperbarui, dan kartu Progres Pendampingan.
