@@ -142,6 +142,8 @@
     rep.lampiran = Object.assign({ hadirAuto: true, jurnalAuto: true, hadirScan: [], jurnalScan: [], portofolio: {}, foto: [] }, rep.lampiran);
     rep.teks = Object.assign({ latar: '', kondisiAwal: '', kondisiAkhir: '' }, rep.teks);
     rep.capaian = rep.capaian || {}; rep.hadir = rep.hadir || []; rep.observasi = rep.observasi || [];
+    // laporan lama: capaian yang sudah dipilih dianggap pilihan fasil (tidak ditimpa hasil otomatis)
+    if (!rep.capaianManual) { rep.capaianManual = {}; Object.keys(rep.capaian).forEach(k => { rep.capaianManual[k] = true; }); }
     if (!rep.reward || typeof rep.reward !== 'object') rep.reward = {};
     if (rep.refleksi && typeof rep.refleksi !== 'object') rep.refleksi = null;
     return resolveRep(rep);
@@ -1305,9 +1307,19 @@
           <button class="btn sm danger" data-act="obs-del" data-i="${i}" style="margin-top:8px">${ic('trash')}Hapus guru ini</button></div>`).join('')}
         <button class="btn" data-act="obs-add">${ic('plus')}Tambah guru yang diobservasi</button></div>`;
     }
-    h += `<div class="card"><div class="card-h">${ic('check')}<h2>Capaian indikator</h2></div><p class="small muted" style="margin-top:-6px">Menentukan kalimat Kondisi Akhir. Bawaan: tercapai.</p>
-      ${R.indikatorList(rep.no).map(i => { const v = rep.capaian[i.id] || 'tercapai'; return `<div class="ind"><div><span class="pill navy">${i.dim}</span> ${esc(i.teks)}</div>
-        <div class="seg">${['tercapai', 'sebagian', 'belum'].map(x => `<button data-act="cap" data-id="${i.id}" data-v="${x}" class="${v === x ? 'on' : ''}"${readOnly ? ' disabled' : ''}>${x[0].toUpperCase() + x.slice(1)}</button>`).join('')}</div></div>`; }).join('')}</div>`;
+    const auto = rep.capaianAuto, Lbl = x => x[0].toUpperCase() + x.slice(1);
+    const subCap = auto ? 'Terisi otomatis dari refleksi peserta: ≥ 75% memilih skor tinggi = Tercapai, 50–74% = Sebagian, < 50% = Belum. Ketuk untuk mengubah.'
+      : rep.refleksi ? 'Pernyataan refleksi tidak cocok dengan indikator, jadi pilih sendiri. Bawaan: tercapai.'
+      : 'Menentukan kalimat Kondisi Akhir. Bawaan: tercapai. Ambil refleksi peserta di langkah Lampiran agar terisi otomatis.';
+    h += `<div class="card"><div class="card-h">${ic('check')}<h2>Capaian indikator</h2></div><p class="small muted" style="margin-top:-6px">${subCap}</p>
+      ${R.indikatorList(rep.no).map(i => {
+        const v = rep.capaian[i.id] || 'tercapai', a = auto && auto[i.id], man = !!rep.capaianManual[i.id];
+        let dasar = '';
+        if (a) dasar = `Dari refleksi: ${a.persen}% memilih ${esc(a.rentang)} · “${esc(a.dasar[0])}”${a.dasar.length > 1 ? ` dan ${a.dasar.length - 1} pernyataan lain` : ''}`;
+        else if (auto) dasar = 'Tidak ada pernyataan refleksi yang cocok (bawaan: tercapai).';
+        if (man && a && a.v !== v) dasar += `${dasar ? ' · ' : ''}<b>Diubah fasil</b> (otomatis: ${Lbl(a.v)})${readOnly ? '' : ` · <button class="lnkbtn" data-act="cap-auto" data-id="${i.id}">Kembalikan otomatis</button>`}`;
+        return `<div class="ind"><div><span class="pill navy">${i.dim}</span> ${esc(i.teks)}${dasar ? `<div class="tiny muted capdasar">${dasar}</div>` : ''}</div>
+        <div class="seg">${['tercapai', 'sebagian', 'belum'].map(x => `<button data-act="cap" data-id="${i.id}" data-v="${x}" class="${v === x ? 'on' : ''}"${readOnly ? ' disabled' : ''}>${Lbl(x)}</button>`).join('')}</div></div>`; }).join('')}</div>`;
     const tf = (k, label, auto) => `<div style="margin-top:12px"><div class="row"><label class="f" style="margin:0">${label}</label><span class="spacer"></span>
       <span class="tiny muted" id="tm-${k}">${rep.teks[k] ? 'diedit manual' : 'otomatis'}</span>
       <button class="btn sm ghost" data-act="teks-reset" data-k="${k}">Kembalikan otomatis</button></div>
@@ -1488,6 +1500,16 @@
       if (Object.keys(o.lab || {}).length || !arti) return;
       const m = I.labelAngka(arti, o.min, o.max);
       if (Object.keys(m).length) { o.lab = m; o.labManual = true; }
+    });
+  }
+  /* Capaian indikator otomatis dari refleksi; pilihan fasil (capaianManual) tidak ditimpa */
+  function hitungCapaian(rep) {
+    const ids = R.indikatorList(rep.no).map(i => i.id);
+    rep.capaianAuto = rep.refleksi && rep.refleksi.items ? I.refCapaian(rep.refleksi.items, R.indikatorList(rep.no)) : null;
+    ids.forEach(id => {
+      if (rep.capaianManual[id]) return;
+      const a = rep.capaianAuto && rep.capaianAuto[id];
+      if (a) rep.capaian[id] = a.v; else delete rep.capaian[id];
     });
   }
   function susunKesimpulan(rep) {
@@ -1708,10 +1730,11 @@
       const auto = I.refKesimpulan(an, ikut.length, rep.hadir.length);
       rep.refleksi = { judul: imp.ref.judul, importedAt: Date.now(), n: ikut.length, nama: ikut.map(r => r.nama).sort((a, b) => a.localeCompare(b, 'id')),
         items: an, arti: (lama && lama.arti) || '', kesAuto: auto, kesimpulan: lama && lama.kesEdit ? lama.kesimpulan : auto, kesEdit: !!(lama && lama.kesEdit) };
+      hitungCapaian(rep);
       S.imp = null;
       markPeserta(s.id);
       touch(); rerenderStep(true);
-      toast(`Refleksi diambil: ${ikut.length} peserta${baru ? ' · ' + baru + ' peserta baru' : ''}${ejaan ? ' · ' + ejaan + ' ejaan nama diingat' : ''}${abaikan ? ' · ' + abaikan + ' baris diabaikan' : ''}. Kehadiran dicentang otomatis.${lama && lama.kesEdit ? ' Kesimpulan yang Anda edit tidak diubah.' : ''}`, false, 6500);
+      toast(`Capaian indikator ikut terisi dari refleksi. Refleksi diambil: ${ikut.length} peserta${baru ? ' · ' + baru + ' peserta baru' : ''}${ejaan ? ' · ' + ejaan + ' ejaan nama diingat' : ''}${abaikan ? ' · ' + abaikan + ' baris diabaikan' : ''}. Kehadiran dicentang otomatis.${lama && lama.kesEdit ? ' Kesimpulan yang Anda edit tidak diubah.' : ''}`, false, 6500);
       return;
     }
     const byKey = new Map();
@@ -2294,7 +2317,7 @@
   /* =========================================================
    * EVENT
    * ========================================================= */
-  const EDIT_ACTS = new Set(['imp-form', 'imp-revback', 'ref-form', 'ref-susun', 'ref-del', 'tempat-sekolah', 'hadir', 'hadir-all', 'hadir-none', 'add-peserta', 'imp-cancel', 'imp-apply', 'tes-del', 'akt-toggle', 'akt-del', 'akt-add', 'keg-reset', 'cap', 'obs-add', 'obs-del', 'teks-reset', 'chip', 'lamp-toggle', 'img-del', 'del-report', 'conf-server', 'conf-mine', 'fh', 'cal', 'cal-nav', 'cal-day', 'rw-inc', 'rw-dec', 'rw-fill0']);
+  const EDIT_ACTS = new Set(['imp-form', 'imp-revback', 'ref-form', 'ref-susun', 'ref-del', 'tempat-sekolah', 'hadir', 'hadir-all', 'hadir-none', 'add-peserta', 'imp-cancel', 'imp-apply', 'tes-del', 'akt-toggle', 'akt-del', 'akt-add', 'keg-reset', 'cap', 'cap-auto', 'obs-add', 'obs-del', 'teks-reset', 'chip', 'lamp-toggle', 'img-del', 'del-report', 'conf-server', 'conf-mine', 'fh', 'cal', 'cal-nav', 'cal-day', 'rw-inc', 'rw-dec', 'rw-fill0']);
 
   app.addEventListener('click', async e => {
     const row = e.target.closest('tr[data-href]');
@@ -2457,7 +2480,7 @@
       case 'imp-form': importForm(b.dataset.mode); break;
       case 'ref-form': importRef(); break;
       case 'ref-susun': susunKesimpulan(S.cur); touch(); rerenderStep(true); toast('Kesimpulan disusun ulang dari jawaban refleksi.'); break;
-      case 'ref-del': if (confirm('Hapus data refleksi dari laporan ini? Jawaban di Google Form tidak terhapus dan bisa diambil lagi.')) { S.cur.refleksi = null; touch(); rerenderStep(true); } break;
+      case 'ref-del': if (confirm('Hapus data refleksi dari laporan ini? Jawaban di Google Form tidak terhapus dan bisa diambil lagi.')) { S.cur.refleksi = null; hitungCapaian(S.cur); touch(); rerenderStep(true); } break;
       case 'imp-revback': if (S.imp) { S.imp.review = null; S.imp.ex = null; } rerenderStep(); break;
       case 'gabung': openGabung(b.dataset.sid); break;
       case 'tes-del': if (confirm('Hapus data nilai pretes/postes laporan ini?')) { rep.tes = null; touch(); rerenderStep(); } break;
@@ -2466,7 +2489,8 @@
       case 'akt-add': { const k = editKeg(); k[b.dataset.si].aktivitas.push({ teks: '', aktif: true }); touch(); rerenderStep();
         const ins = document.querySelectorAll(`[data-akt^="${b.dataset.si}|"]`); if (ins.length) ins[ins.length - 1].focus(); break; }
       case 'keg-reset': if (confirm('Kembalikan langkah kegiatan sesuai silabus? Perubahan teks & catatan sesi akan hilang.')) { rep.kegiatan = null; touch(); rerenderStep(); } break;
-      case 'cap': rep.capaian[b.dataset.id] = b.dataset.v; touch(); rerenderStep(); break;
+      case 'cap': rep.capaian[b.dataset.id] = b.dataset.v; rep.capaianManual[b.dataset.id] = true; touch(); rerenderStep(true); break;
+      case 'cap-auto': delete rep.capaianManual[b.dataset.id]; hitungCapaian(rep); touch(); rerenderStep(true); break;
       case 'obs-add': rep.observasi = (rep.observasi || []).concat({ guru: '', kelas: '', kekuatan: '', perbaikan: '', tindakLanjut: '' }); touch(); rerenderStep(); break;
       case 'obs-del': rep.observasi.splice(+b.dataset.i, 1); touch(); rerenderStep(); break;
       case 'teks-reset': rep.teks[b.dataset.k] = ''; touch(); rerenderStep(); break;
@@ -2636,6 +2660,7 @@
       terapkanArti(R0.items, R0.arti);
       R0.kesAuto = I.refKesimpulan(R0.items, R0.n, (S.cur.hadir || []).length);
       if (!R0.kesEdit) R0.kesimpulan = R0.kesAuto;
+      hitungCapaian(S.cur);
       touch(); rerenderStep(true);
       toast(R0.items.some(o => o.labManual) ? 'Arti skor dipakai di rangkuman.' : 'Arti skor belum terbaca. Tulis seperti: 1 = tidak setuju, 4 = sangat setuju.', !R0.items.some(o => o.labManual));
       return;

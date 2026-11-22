@@ -470,5 +470,54 @@
     return kal.join(' ');
   };
 
+  /* =========================================================
+   * CAPAIAN INDIKATOR dari refleksi: setiap indikator dicocokkan dengan pernyataan refleksi berskala
+   * yang paling mirip; status dari persentase peserta yang memilih skor tinggi.
+   * ≥ 75% Tercapai, 50–74% Sebagian, < 50% Belum.
+   * ========================================================= */
+  const KATA_ABAI = new Set(('peserta dapat saya mampu memahami paham mengerti tahu yang dan atau dengan dalam pada di ke dari untuk ini itu serta secara ' +
+    'tentang terhadap sesuai lebih sangat bisa akan sudah telah adalah oleh para setiap tiga dua satu cara hal pembelajaran belajar').split(' '));
+  const akar = w => {
+    let x = w.replace(/(nya|lah|kah)$/, '');
+    x = x.replace(/^(meng|meny|mem|men|me|peng|peny|pem|pen|per|pe|ber|be|ter|di|ke)(?=[a-z]{4,})/, '');
+    x = x.replace(/(kan|an|i)$/, m => x.length - m.length >= 4 ? '' : m);
+    return x.replace(/^c/, 'k').replace(/x/g, 'ks');   // contextual ~ kontekstual
+  };
+  const kataPokok = t => String(t || '').toLowerCase().replace(/^\s*\d+\s*[.)]\s*/, '').replace(/[^a-z0-9\s-]/g, ' ').split(/[\s-]+/)
+    .filter(w => w.length >= 3 && !KATA_ABAI.has(w)).map(akar).filter(w => w.length >= 3);
+  const kataSama = (a, b) => a === b || (a.length >= 5 && b.length >= 5 && (a.slice(0, 5) === b.slice(0, 5)));
+  // kata yang muncul di lebih dari separuh pernyataan (mis. "numerasi") diberi bobot kecil
+  function kemiripan(ind, pern, bobot) {
+    const A = [...new Set(kataPokok(ind))], B = [...new Set(kataPokok(pern))];
+    if (!A.length || !B.length) return 0;
+    const w = x => bobot(x), sum = arr => arr.reduce((a, x) => a + w(x), 0);
+    const cocok = sum(A.filter(a => B.some(b => kataSama(a, b))));
+    const sa = sum(A), sb = sum(B);
+    return cocok / Math.min(sa, sb) * 0.7 + cocok / Math.max(sa, sb) * 0.3;
+  }
+  U.refCapaian = function (items, indikator) {
+    // butir berskala: pertanyaan skala & setiap pernyataan petak berangka
+    const unit = [];
+    (items || []).forEach(o => {
+      if (o.jenis === 'SCALE' && o.n) unit.push({ teks: o.judul, persen: o.tinggi, n: o.n, rentang: rentangTinggi(o, o.lab) });
+      if (o.jenis === 'GSCALE') o.baris.forEach(b => unit.push({ teks: b.t, persen: b.tinggi, n: b.n, rentang: rentangTinggi(Object.assign({ min: o.min, max: o.max }, b), o.lab) }));
+    });
+    const out = {};
+    if (!unit.length) return out;
+    const df = new Map();
+    unit.forEach(u => new Set(kataPokok(u.teks)).forEach(k => df.set(k, (df.get(k) || 0) + 1)));
+    const bobot = k => { let n = 0; df.forEach((v, kk) => { if (kataSama(k, kk)) n = Math.max(n, v); }); return unit.length >= 4 && n / unit.length > 0.5 ? 0.3 : 1; };
+    indikator.forEach(i => {
+      const sk = unit.map(u => ({ u, s: kemiripan(i.teks, u.teks, bobot) })).sort((a, b) => b.s - a.s);
+      if (!sk.length || sk[0].s < 0.35) return;
+      const pakai = sk.filter(x => x.s >= 0.5 || x.s >= sk[0].s - 0.15).filter(x => x.s >= 0.35).slice(0, 3);
+      const nT = pakai.reduce((a, x) => a + x.u.persen * x.u.n, 0), nA = pakai.reduce((a, x) => a + x.u.n, 0);
+      const persen = nA ? Math.round(nT / nA) : 0;
+      out[i.id] = { v: persen >= 75 ? 'tercapai' : persen >= 50 ? 'sebagian' : 'belum', persen, rentang: pakai[0].u.rentang,
+        dasar: pakai.map(x => bersihJudul(x.u.teks)) };
+    });
+    return out;
+  };
+
   window.Importer = U;
 })();

@@ -1,4 +1,4 @@
-# Panduan Pemasangan LAPORAN CERMAT v3.6
+# Panduan Pemasangan LAPORAN CERMAT v3.7
 
 Aplikasi terdiri dari dua bagian:
 
@@ -98,6 +98,10 @@ Pemasangan cukup **sekali**, sekitar 15 menit.
 4. Buka aplikasi dan tekan **Ctrl+Shift+R** sekali.
 
 Data lama tetap aman. Kolom baru di Sheets ditambahkan otomatis.
+
+**Catatan v3.7 (Capaian indikator otomatis dari refleksi) — tanpa perubahan Apps Script:**
+- Setelah refleksi diambil, setiap indikator dicocokkan dengan pernyataan refleksi berskala yang paling mirip. Status: ≥ 75% peserta memilih skor tinggi = Tercapai, 50–74% = Sebagian, < 50% = Belum; dasarnya tampil di bawah indikator.
+- Fasil tetap bisa mengubah; pilihan fasil tidak ditimpa saat refleksi diperbarui ("Kembalikan otomatis" membatalkannya). Capaian yang sudah dipilih di laporan lama dianggap pilihan fasil.
 
 **Catatan v3.6 (Indeks materi & satu folder PUSTAKA CERMAT, server 3.2.0) — WAJIB deploy ulang + izin:**
 1. Ganti seluruh isi `Code.gs`, **Simpan**.

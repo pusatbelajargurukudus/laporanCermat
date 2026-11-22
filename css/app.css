@@ -545,3 +545,6 @@ a.pick:hover, a.pcard:hover { border-color: var(--gold-l); }
 /* tautan kecil "pakai file CSV/Excel" (cadangan bila nilai diambil dari Google Form) */
 .lnk { color: var(--navy-2); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .lnk:hover { color: var(--navy); }
+/* capaian indikator: dasar dari refleksi */
+.capdasar { margin-top: 4px; line-height: 1.45; }
+.lnkbtn { background: none; border: 0; padding: 0; font: inherit; color: var(--navy-2); text-decoration: underline; cursor: pointer; font-weight: 600; }
