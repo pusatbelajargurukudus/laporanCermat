@@ -1,4 +1,4 @@
-# Panduan Pemasangan LAPORAN CERMAT v3.7
+# Panduan Pemasangan LAPORAN CERMAT v3.8
 
 Aplikasi terdiri dari dua bagian:
 
@@ -98,6 +98,16 @@ Pemasangan cukup **sekali**, sekitar 15 menit.
 4. Buka aplikasi dan tekan **Ctrl+Shift+R** sekali.
 
 Data lama tetap aman. Kolom baru di Sheets ditambahkan otomatis.
+
+**Catatan v3.8 (Capaian 5 tingkat; menggabungkan v3.7.1) — tanpa perubahan Apps Script:**
+- Capaian indikator 5 tingkat dari rata-rata skor refleksi (dipetakan ke skala 1–5): ≥ 4,5 Sangat memahami · 3,5–4,4 Memahami · 2,5–3,4 Cukup · 1,5–2,4 Kurang · < 1,5 Belum memahami. Nama status diambil dari keterangan skala di form bila ada.
+- Kalimat Kondisi Akhir menyesuaikan ("… dengan sangat baik", "… dengan cukup baik", "masih kurang mampu …", "belum …").
+- Laporan lama: Tercapai → Memahami, Sebagian → Cukup, Belum → Belum memahami; hasil otomatis versi 3.7 dihitung ulang saat dibuka.
+
+**Catatan v3.7.1 — tanpa perubahan Apps Script:**
+- Capaian indikator dihitung saat laporan dibuka bila refleksinya diambil sebelum v3.7; rangkuman refleksi versi lama diminta diambil ulang.
+- Lampiran daftar hadir & jurnal kegiatan selalu dibuat otomatis (tanpa unggah scan; scan lama tetap tampil dan bisa dihapus).
+- Portofolio tugas & foto dokumentasi menerima gambar atau PDF; setiap halaman PDF (maks. 20, berkas maks. 30 MB) diubah menjadi gambar di perangkat sebelum diunggah.
 
 **Catatan v3.7 (Capaian indikator otomatis dari refleksi) — tanpa perubahan Apps Script:**
 - Setelah refleksi diambil, setiap indikator dicocokkan dengan pernyataan refleksi berskala yang paling mirip. Status: ≥ 75% peserta memilih skor tinggi = Tercapai, 50–74% = Sebagian, < 50% = Belum; dasarnya tampil di bawah indikator.

@@ -74,6 +74,8 @@
   };
 
   const klausa = t => t.replace(/^Peserta\s+/i, '').replace(/\.$/, '');
+  /* Capaian 5 tingkat; nilai lama (3 status) dipetakan: tercapai -> paham, sebagian -> cukup */
+  R.capaianNorm = v => ({ tercapai: 'paham', sebagian: 'cukup' })[v] || (['sangat', 'paham', 'cukup', 'kurang', 'belum'].indexOf(v) >= 0 ? v : 'paham');
 
   /* ---------- Nilai pretes/postes ---------- */
   R.stats = function (rep) {
@@ -159,9 +161,11 @@
     if ((rep.teks.kondisiAkhir || '').trim()) return rep.teks.kondisiAkhir.trim();
     const s = R.sil(rep.no);
     const items = R.indikatorList(rep.no).map(i => {
-      const c = rep.capaian[i.id] || 'tercapai';
+      const c = R.capaianNorm(rep.capaian[i.id]);
       const k = klausa(i.teks);
-      if (c === 'sebagian') return 'sebagian peserta ' + k;
+      if (c === 'sangat') return 'peserta ' + k + ' dengan sangat baik';
+      if (c === 'cukup') return 'peserta ' + k + ' dengan cukup baik';
+      if (c === 'kurang') return 'peserta masih kurang mampu ' + k.replace(/^(dapat|mampu)\s+/i, '');
       if (c === 'belum') return 'peserta belum ' + k;
       return 'peserta ' + k;
     });

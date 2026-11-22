@@ -472,8 +472,8 @@
 
   /* =========================================================
    * CAPAIAN INDIKATOR dari refleksi: setiap indikator dicocokkan dengan pernyataan refleksi berskala
-   * yang paling mirip; status dari persentase peserta yang memilih skor tinggi.
-   * ≥ 75% Tercapai, 50–74% Sebagian, < 50% Belum.
+   * yang paling mirip; status 5 tingkat dari rata-rata skor (dipetakan ke 1–5):
+   * ≥ 4,5 sangat · 3,5–4,4 paham · 2,5–3,4 cukup · 1,5–2,4 kurang · < 1,5 belum.
    * ========================================================= */
   const KATA_ABAI = new Set(('peserta dapat saya mampu memahami paham mengerti tahu yang dan atau dengan dalam pada di ke dari untuk ini itu serta secara ' +
     'tentang terhadap sesuai lebih sangat bisa akan sudah telah adalah oleh para setiap tiga dua satu cara hal pembelajaran belajar').split(' '));
@@ -495,15 +495,27 @@
     const sa = sum(A), sb = sum(B);
     return cocok / Math.min(sa, sb) * 0.7 + cocok / Math.max(sa, sb) * 0.3;
   }
+  U.CAPAIAN = ['sangat', 'paham', 'cukup', 'kurang', 'belum'];
+  U.CAPAIAN_NAMA = { sangat: 'Sangat memahami', paham: 'Memahami', cukup: 'Cukup', kurang: 'Kurang', belum: 'Belum memahami' };
+  U.capaianDari = x => x >= 4.5 ? 'sangat' : x >= 3.5 ? 'paham' : x >= 2.5 ? 'cukup' : x >= 1.5 ? 'kurang' : 'belum';
+  /* Nama status dari keterangan skala 1–5 di form ("1 = belum memahami/tidak setuju" -> "Belum memahami") */
+  U.capaianNama = function (items) {
+    const o = (items || []).find(x => (x.jenis === 'SCALE' || x.jenis === 'GSCALE') && x.min === 1 && x.max === 5 && x.lab && Object.keys(x.lab).length >= 4);
+    const nama = Object.assign({}, U.CAPAIAN_NAMA);
+    if (!o) return nama;
+    const ambil = n => { const t = String(o.lab[n] || '').split('/')[0].trim(); return t ? t[0].toUpperCase() + t.slice(1).toLowerCase() : ''; };
+    [['sangat', 5], ['paham', 4], ['cukup', 3], ['kurang', 2], ['belum', 1]].forEach(([k, n]) => { const t = ambil(n); if (t && t.length <= 28) nama[k] = t; });
+    return nama;
+  };
   U.refCapaian = function (items, indikator) {
     // butir berskala: pertanyaan skala & setiap pernyataan petak berangka
     const unit = [];
     (items || []).forEach(o => {
-      if (o.jenis === 'SCALE' && o.n) unit.push({ teks: o.judul, persen: o.tinggi, n: o.n, rentang: rentangTinggi(o, o.lab) });
-      if (o.jenis === 'GSCALE') o.baris.forEach(b => unit.push({ teks: b.t, persen: b.tinggi, n: b.n, rentang: rentangTinggi(Object.assign({ min: o.min, max: o.max }, b), o.lab) }));
+      if (o.jenis === 'SCALE' && o.n && o.avg !== undefined) unit.push({ teks: o.judul, avg: o.avg, min: o.min, max: o.max, n: o.n, lab: o.lab });
+      if (o.jenis === 'GSCALE') o.baris.forEach(b => unit.push({ teks: b.t, avg: b.avg, min: o.min, max: o.max, n: b.n, lab: o.lab }));
     });
     const out = {};
-    if (!unit.length) return out;
+    if (!unit.length) return null;   // refleksi tanpa butir skala
     const df = new Map();
     unit.forEach(u => new Set(kataPokok(u.teks)).forEach(k => df.set(k, (df.get(k) || 0) + 1)));
     const bobot = k => { let n = 0; df.forEach((v, kk) => { if (kataSama(k, kk)) n = Math.max(n, v); }); return unit.length >= 4 && n / unit.length > 0.5 ? 0.3 : 1; };
@@ -511,9 +523,11 @@
       const sk = unit.map(u => ({ u, s: kemiripan(i.teks, u.teks, bobot) })).sort((a, b) => b.s - a.s);
       if (!sk.length || sk[0].s < 0.35) return;
       const pakai = sk.filter(x => x.s >= 0.5 || x.s >= sk[0].s - 0.15).filter(x => x.s >= 0.35).slice(0, 3);
-      const nT = pakai.reduce((a, x) => a + x.u.persen * x.u.n, 0), nA = pakai.reduce((a, x) => a + x.u.n, 0);
-      const persen = nA ? Math.round(nT / nA) : 0;
-      out[i.id] = { v: persen >= 75 ? 'tercapai' : persen >= 50 ? 'sebagian' : 'belum', persen, rentang: pakai[0].u.rentang,
+      // rata-rata berbobot jumlah penjawab, dipetakan ke skala 1–5
+      const nA = pakai.reduce((a, x) => a + x.u.n, 0);
+      const x5 = pakai.reduce((a, x) => a + (1 + 4 * (x.u.avg - x.u.min) / Math.max(1, x.u.max - x.u.min)) * x.u.n, 0) / Math.max(1, nA);
+      const avg = pakai.reduce((a, x) => a + x.u.avg * x.u.n, 0) / Math.max(1, nA);
+      out[i.id] = { v: U.capaianDari(x5), avg: Math.round(avg * 10) / 10, max: pakai[0].u.max, satuSkala: pakai.every(x => x.u.max === pakai[0].u.max && x.u.min === pakai[0].u.min),
         dasar: pakai.map(x => bersihJudul(x.u.teks)) };
     });
     return out;

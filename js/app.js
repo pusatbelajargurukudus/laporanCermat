@@ -140,10 +140,13 @@
   }
   function normalize(rep) {
     rep.lampiran = Object.assign({ hadirAuto: true, jurnalAuto: true, hadirScan: [], jurnalScan: [], portofolio: {}, foto: [] }, rep.lampiran);
+    rep.lampiran.hadirAuto = true; rep.lampiran.jurnalAuto = true;   // daftar hadir & jurnal selalu dibuat otomatis
     rep.teks = Object.assign({ latar: '', kondisiAwal: '', kondisiAkhir: '' }, rep.teks);
     rep.capaian = rep.capaian || {}; rep.hadir = rep.hadir || []; rep.observasi = rep.observasi || [];
     // laporan lama: capaian yang sudah dipilih dianggap pilihan fasil (tidak ditimpa hasil otomatis)
     if (!rep.capaianManual) { rep.capaianManual = {}; Object.keys(rep.capaian).forEach(k => { rep.capaianManual[k] = true; }); }
+    Object.keys(rep.capaian).forEach(k => { rep.capaian[k] = R.capaianNorm(rep.capaian[k]); });   // 3 status lama -> 5 tingkat
+    if (rep.capaianAuto && Object.values(rep.capaianAuto).some(a => a && a.persen !== undefined)) rep.capaianAuto = undefined;   // hasil versi lama: hitung ulang
     if (!rep.reward || typeof rep.reward !== 'object') rep.reward = {};
     if (rep.refleksi && typeof rep.refleksi !== 'object') rep.refleksi = null;
     return resolveRep(rep);
@@ -1000,6 +1003,25 @@
     return pdfjsP;
   }
   const PV = { token: 0, zoom: 1, doc: null };
+  /* PDF lampiran -> gambar JPEG per halaman (maks. 20 halaman, berkas maks. 30 MB) */
+  async function pdfKeGambar(file, maxSide) {
+    if (file.size > 30 * 1024 * 1024) throw new Error(file.name + ' terlalu besar (maks. 30 MB).');
+    const pdfjs = await loadPdfJs();
+    const doc = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false }).promise;
+    const n = Math.min(doc.numPages, 20), out = [];
+    if (doc.numPages > 20) toast(file.name + ': hanya 20 halaman pertama yang dipakai.', true, 6000);
+    for (let p = 1; p <= n; p++) {
+      toast('Menyiapkan ' + file.name + ' · halaman ' + p + '/' + n + '…', false, 3000);
+      const pg = await doc.getPage(p);
+      const v0 = pg.getViewport({ scale: 1 }), sc = Math.min(3, maxSide / Math.max(v0.width, v0.height)), v = pg.getViewport({ scale: sc });
+      const c = document.createElement('canvas'); c.width = Math.round(v.width); c.height = Math.round(v.height);
+      const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+      await pg.render({ canvasContext: ctx, viewport: v }).promise;
+      out.push(c.toDataURL('image/jpeg', 0.82));
+    }
+    doc.destroy();
+    return out;
+  }
   function renderKsView() {
     const rep = S.cur, s = school(rep.sekolahId), sil = R.sil(rep.no);
     readOnly = true;
@@ -1307,19 +1329,24 @@
           <button class="btn sm danger" data-act="obs-del" data-i="${i}" style="margin-top:8px">${ic('trash')}Hapus guru ini</button></div>`).join('')}
         <button class="btn" data-act="obs-add">${ic('plus')}Tambah guru yang diobservasi</button></div>`;
     }
-    const auto = rep.capaianAuto, Lbl = x => x[0].toUpperCase() + x.slice(1);
-    const subCap = auto ? 'Terisi otomatis dari refleksi peserta: ≥ 75% memilih skor tinggi = Tercapai, 50–74% = Sebagian, < 50% = Belum. Ketuk untuk mengubah.'
-      : rep.refleksi ? 'Pernyataan refleksi tidak cocok dengan indikator, jadi pilih sendiri. Bawaan: tercapai.'
-      : 'Menentukan kalimat Kondisi Akhir. Bawaan: tercapai. Ambil refleksi peserta di langkah Lampiran agar terisi otomatis.';
+    // refleksi diambil sebelum fitur ini ada: hitung sekarang (disimpan bila boleh mengedit)
+    if (rep.refleksi && rep.capaianAuto === undefined) { hitungCapaian(rep); if (!readOnly) touch(); }
+    const auto = rep.capaianAuto, NAMA = I.capaianNama(rep.refleksi && rep.refleksi.items), Lbl = x => NAMA[x] || x;
+    const lamaRef = rep.refleksi && (rep.refleksi.items || []).some(o => o.jenis === 'GRID' && (o.baris || []).length && o.baris.every(b => /^\d+$/.test(String(b.top || ''))));
+    const bawaan = 'Bawaan: ' + Lbl('paham') + '.';
+    const subCap = auto ? `Terisi otomatis dari rata-rata skor refleksi peserta: ≥ 4,5 ${Lbl('sangat')} · 3,5–4,4 ${Lbl('paham')} · 2,5–3,4 ${Lbl('cukup')} · 1,5–2,4 ${Lbl('kurang')} · < 1,5 ${Lbl('belum')} (skala 1–5). Ketuk untuk mengubah.`
+      : lamaRef ? 'Rangkuman refleksi laporan ini dibuat versi lama. Buka langkah Lampiran lalu ketuk <b>Perbarui dari Google Form</b> agar capaian terisi otomatis. ' + bawaan
+      : rep.refleksi ? 'Refleksi tidak berisi pernyataan berskala, jadi capaian dipilih sendiri. ' + bawaan
+      : 'Menentukan kalimat Kondisi Akhir. ' + bawaan + ' Ambil refleksi peserta di langkah Lampiran agar terisi otomatis.';
     h += `<div class="card"><div class="card-h">${ic('check')}<h2>Capaian indikator</h2></div><p class="small muted" style="margin-top:-6px">${subCap}</p>
       ${R.indikatorList(rep.no).map(i => {
-        const v = rep.capaian[i.id] || 'tercapai', a = auto && auto[i.id], man = !!rep.capaianManual[i.id];
+        const v = R.capaianNorm(rep.capaian[i.id]), a = auto && auto[i.id], man = !!rep.capaianManual[i.id];
         let dasar = '';
-        if (a) dasar = `Dari refleksi: ${a.persen}% memilih ${esc(a.rentang)} · “${esc(a.dasar[0])}”${a.dasar.length > 1 ? ` dan ${a.dasar.length - 1} pernyataan lain` : ''}`;
-        else if (auto) dasar = 'Tidak ada pernyataan refleksi yang cocok (bawaan: tercapai).';
+        if (a) dasar = `Dari refleksi: rata-rata ${String(a.avg).replace('.', ',')}${a.satuSkala ? ' dari ' + a.max : ''} · “${esc(a.dasar[0])}”${a.dasar.length > 1 ? ` dan ${a.dasar.length - 1} pernyataan lain` : ''}`;
+        else if (auto) dasar = 'Tidak ada pernyataan refleksi yang cocok (bawaan: ' + Lbl('paham') + ').';
         if (man && a && a.v !== v) dasar += `${dasar ? ' · ' : ''}<b>Diubah fasil</b> (otomatis: ${Lbl(a.v)})${readOnly ? '' : ` · <button class="lnkbtn" data-act="cap-auto" data-id="${i.id}">Kembalikan otomatis</button>`}`;
         return `<div class="ind"><div><span class="pill navy">${i.dim}</span> ${esc(i.teks)}${dasar ? `<div class="tiny muted capdasar">${dasar}</div>` : ''}</div>
-        <div class="seg">${['tercapai', 'sebagian', 'belum'].map(x => `<button data-act="cap" data-id="${i.id}" data-v="${x}" class="${v === x ? 'on' : ''}"${readOnly ? ' disabled' : ''}>${Lbl(x)}</button>`).join('')}</div></div>`; }).join('')}</div>`;
+        <div class="seg seg5">${I.CAPAIAN.map(x => `<button data-act="cap" data-id="${i.id}" data-v="${x}" class="${v === x ? 'on' : ''}"${readOnly ? ' disabled' : ''}>${esc(Lbl(x))}</button>`).join('')}</div></div>`; }).join('')}</div>`;
     const tf = (k, label, auto) => `<div style="margin-top:12px"><div class="row"><label class="f" style="margin:0">${label}</label><span class="spacer"></span>
       <span class="tiny muted" id="tm-${k}">${rep.teks[k] ? 'diedit manual' : 'otomatis'}</span>
       <button class="btn sm ghost" data-act="teks-reset" data-k="${k}">Kembalikan otomatis</button></div>
@@ -1414,22 +1441,22 @@
   function thumbs(list, key) {
     return `<div class="thumbs">${(list || []).map(id => `<div class="thumb${String(id).startsWith('tmp_') ? ' pend' : ''}"><img data-img="${esc(id)}" alt=""><button data-act="img-del" data-list="${esc(key)}" data-id="${esc(id)}" title="Hapus">×</button></div>`).join('')}</div>`;
   }
-  function uploadBtn(key, label) { return `<label class="btn upl">${label}<input type="file" accept="image/*" multiple data-up="${esc(key)}"></label>`; }
+  function uploadBtn(key, label) { return `<label class="btn upl">${label}<input type="file" accept="image/*,application/pdf,.pdf" multiple data-up="${esc(key)}"></label>`; }
   function step5(rep, s, sil) {
     const L = rep.lampiran;
     const lkKeys = sil.lk.concat(Object.keys(L.portofolio).filter(k => !sil.lk.includes(k)));
     if (!lkKeys.includes('Lainnya')) lkKeys.push('Lainnya');
+    // a & b dibuat otomatis; scan lama (bila pernah diunggah) tetap tampil dan bisa dihapus
+    const scanLama = (key, list) => (list || []).length ? `<p class="small muted" style="margin-top:10px">Scan yang pernah diunggah (ikut dicetak; hapus bila tidak perlu):</p>${thumbs(list, key)}` : '';
     return refCard(rep, s) + `<div class="card"><h2>a. Daftar hadir</h2>
-      <label><input type="checkbox" data-act="lamp-toggle" data-k="hadirAuto"${L.hadirAuto ? ' checked' : ''} style="vertical-align:-4px"> Buat tabel daftar hadir otomatis (dari langkah Kehadiran${R.hasTes(rep.no) ? ', lengkap dengan nilai pretes/postes' : ''})</label>
-      <p class="small muted">Foto/scan daftar hadir bertanda tangan (opsional).</p>${uploadBtn('hadirScan', '+ Foto/scan daftar hadir')}${thumbs(L.hadirScan, 'hadirScan')}</div>
+      <p class="small" style="margin:0">${ic('check')} Tabel daftar hadir dibuat otomatis dari langkah Kehadiran${R.hasTes(rep.no) ? ', lengkap dengan nilai pretes/postes' : ''}. Tidak perlu mengunggah foto.</p>${scanLama('hadirScan', L.hadirScan)}</div>
       <div class="card"><h2>b. Jurnal kegiatan</h2>
-      <label><input type="checkbox" data-act="lamp-toggle" data-k="jurnalAuto"${L.jurnalAuto ? ' checked' : ''} style="vertical-align:-4px"> Buat jurnal kegiatan fasilitator otomatis (sesi, kegiatan, catatan, kolom paraf, tanda tangan penanggung jawab)</label>
-      <p class="small muted">Catatan per sesi diisi di langkah 3. Scan jurnal bertanda tangan bisa ditambahkan.</p>${uploadBtn('jurnalScan', '+ Foto/scan jurnal')}${thumbs(L.jurnalScan, 'jurnalScan')}</div>
+      <p class="small" style="margin:0">${ic('check')} Jurnal kegiatan fasilitator dibuat otomatis (sesi, kegiatan, catatan dari langkah 3, kolom paraf, tanda tangan penanggung jawab). Tidak perlu mengunggah scan.</p>${scanLama('jurnalScan', L.jurnalScan)}</div>
       <div class="card"><h2>c. Portofolio tugas <span class="small muted">(opsional)</span></h2>
-      <p class="small muted">Foto hasil LK peserta. Bagian yang kosong tidak dicetak.</p>
-      ${lkKeys.map(k => `<div class="sesi"><div class="sesi-h">${esc(k)} <span class="spacer"></span>${uploadBtn('porto:' + k, '+ Foto')}</div>${thumbs(L.portofolio[k], 'porto:' + k)}</div>`).join('')}</div>
-      <div class="card"><h2>d. Foto dokumentasi kegiatan *</h2>${uploadBtn('foto', '+ Tambah foto')}${thumbs(L.foto, 'foto')}
-      <p class="small muted">Foto dikompres otomatis lalu disimpan ke folder sekolah di Google Drive. Bingkai kuning = menunggu terunggah.</p></div>`;
+      <p class="small muted">Foto atau PDF hasil LK peserta. Setiap halaman PDF dijadikan gambar. Bagian yang kosong tidak dicetak.</p>
+      ${lkKeys.map(k => `<div class="sesi"><div class="sesi-h">${esc(k)} <span class="spacer"></span>${uploadBtn('porto:' + k, '+ Foto/PDF')}</div>${thumbs(L.portofolio[k], 'porto:' + k)}</div>`).join('')}</div>
+      <div class="card"><h2>d. Foto dokumentasi kegiatan *</h2>${uploadBtn('foto', '+ Tambah foto/PDF')}${thumbs(L.foto, 'foto')}
+      <p class="small muted">Foto dikompres otomatis lalu disimpan ke folder sekolah di Google Drive; PDF diubah menjadi gambar per halaman. Bingkai kuning = menunggu terunggah.</p></div>`;
   }
   /* Refleksi peserta: jawaban Google Form refleksi -> rangkuman analisis otomatis + kesimpulan yang bisa diedit */
   function refCard(rep, s) {
@@ -2672,9 +2699,17 @@
       const scan = t.dataset.up !== 'foto';
       const files = [...t.files];
       const jenis = t.dataset.up.startsWith('porto:') ? 'portofolio' : t.dataset.up;
-      for (let i = 0; i < files.length; i++) {
+      // PDF: setiap halaman dijadikan gambar JPEG lalu diperlakukan seperti foto
+      const gambar = [];
+      for (const f of files) {
+        if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) {
+          try { (await pdfKeGambar(f, scan ? 1800 : 1400)).forEach(d => gambar.push({ data: d })); }
+          catch (er) { toast(er.message || ('PDF tidak bisa dibaca: ' + f.name), true, 6000); }
+        } else gambar.push({ file: f });
+      }
+      for (let i = 0; i < gambar.length; i++) {
         try {
-          const data = await compressImage(files[i], scan ? 1800 : 1400, scan ? 0.8 : 0.74);
+          const data = gambar[i].data || await compressImage(gambar[i].file, scan ? 1800 : 1400, scan ? 0.8 : 0.74);
           const tmpId = 'tmp_' + R.uid();
           const rec = { id: tmpId, data };
           await DB.put('images', rec); S.imgCache.set(tmpId, rec);

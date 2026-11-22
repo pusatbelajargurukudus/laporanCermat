@@ -548,3 +548,9 @@ a.pick:hover, a.pcard:hover { border-color: var(--gold-l); }
 /* capaian indikator: dasar dari refleksi */
 .capdasar { margin-top: 4px; line-height: 1.45; }
 .lnkbtn { background: none; border: 0; padding: 0; font: inherit; color: var(--navy-2); text-decoration: underline; cursor: pointer; font-weight: 600; }
+/* capaian 5 tingkat */
+.seg button.on[data-v=sangat] { background: #1f6f4a; color: #fff; } .seg button.on[data-v=paham] { background: var(--ok); color: #fff; }
+.seg button.on[data-v=cukup] { background: #e0a43a; color: #fff; } .seg button.on[data-v=kurang] { background: #d9772b; color: #fff; }
+.seg5 { flex-wrap: wrap; max-width: 100%; }
+.seg5 button { padding: 6px 10px; }
+@media (max-width: 640px) { .seg5 { display: flex; } .seg5 button { flex: 1 1 auto; } }
