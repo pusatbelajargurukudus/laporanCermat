@@ -1,4 +1,4 @@
-# Panduan Pemasangan LAPORAN CERMAT v3.11
+# Panduan Pemasangan LAPORAN CERMAT v3.11.1
 
 Aplikasi terdiri dari dua bagian:
 
@@ -98,6 +98,11 @@ Pemasangan cukup **sekali**, sekitar 15 menit.
 4. Buka aplikasi dan tekan **Ctrl+Shift+R** sekali.
 
 Data lama tetap aman. Kolom baru di Sheets ditambahkan otomatis.
+
+**Catatan v3.11.1 — tanpa perubahan Apps Script:**
+- PDF: setiap LK di Portofolio tugas dicetak mulai halaman baru, jadi judul LK tidak terpisah dari fotonya.
+- Lampiran: kolom "Lembar Refleksi" tidak ditampilkan bila refleksi diambil dari Google Form (foto lama tetap tampil).
+- Keterangan nilai/refleksi otomatis diperjelas: "Nilai diambil otomatis dari Google Form · terakhir masuk …", "Nilai diambil … Selanjutnya diperbarui otomatis …" (data lama dari tombol/berkas), atau "Belum ada jawaban … di Google Form …".
 
 **Catatan v3.11 (server 3.5.0) — Apps Script BERUBAH; deploy versi baru, lalu jalankan `pasangNilai` sekali:**
 1. Ganti isi `Code.gs` → Ctrl+S → Deploy → Manage deployments → ✏ → **New version** → Deploy.

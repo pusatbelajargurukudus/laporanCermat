@@ -582,8 +582,8 @@
     const portoFilled = portoKeys.filter(k => ((L.portofolio || {})[k] || []).length);
     if (portoFilled.length) {
       w.h2(letter(), 'Portofolio Tugas', true);
-      for (const k of portoFilled) {
-        w.ensure(200);
+      for (const [i, k] of portoFilled.entries()) {
+        if (i > 0) w.newPage();   // setiap LK mulai halaman baru: judul tidak terpisah dari fotonya
         w.para(k, { x: IND + 16, font: fonts.bold, align: 'left', size: 10.5, after: 3 });
         await w.images(await img(L.portofolio[k]), { x: IND + 16, cols: 2, maxH: 330 });
       }

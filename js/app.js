@@ -1286,9 +1286,14 @@
   /* Status pengambilan otomatis dari Google Form + tombol Perbarui data. jenis: 'tes' | 'ref' */
   function otoInfo(rep, jenis) {
     const rk = S.rekap.get(rep.key) || {}, oto = rk.oto || {};
-    const at = rep.otomatis && rep.otomatis[jenis] && rep.otomatis[jenis].at, cek = oto[jenis + 'Cek'], tunda = Number(oto[jenis + 'Tunda']) || 0;
+    const at = rep.otomatis && rep.otomatis[jenis] && rep.otomatis[jenis].at, tunda = Number(oto[jenis + 'Tunda']) || 0;
     const ulang = Number(((jenis === 'tes' ? rep.tes : rep.refleksi) || {}).ulang) || 0;
-    let h = `<div class="otobar"><div class="small">${ic('cloud')}<span>Diambil <b>otomatis</b> dari Google Form setiap ±15 menit${at ? ` · data terakhir masuk ${esc(fmtWaktu(at))}` : ' · belum ada jawaban yang masuk'}${cek ? ` · diperiksa ${esc(fmtWaktu(cek))}` : ''}</span></div>
+    const ada = jenis === 'tes' ? !!(rep.tes && (rep.tes.rows || []).length) : !!rep.refleksi;
+    const data = jenis === 'tes' ? rep.tes : rep.refleksi, Apa = jenis === 'tes' ? 'Nilai' : 'Jawaban refleksi';
+    const teks = !ada ? `Belum ada jawaban ${esc(school(rep.sekolahId) ? school(rep.sekolahId).nama : '')} di Google Form. ${Apa} masuk otomatis setelah peserta mengerjakan${jenis === 'tes' ? '' : 'nya'}.`
+      : (data && data.otomatis) || at ? `${Apa} diambil <b>otomatis</b> dari Google Form${at ? ` · terakhir masuk ${esc(fmtWaktu(at))}` : ''}`
+      : `${Apa} diambil ${esc(fmtWaktu(data && data.importedAt))}. Selanjutnya diperbarui <b>otomatis</b> dari Google Form.`;
+    let h = `<div class="otobar"><div class="small">${ic('cloud')}<span>${teks}</span></div>
       <button class="btn sm" data-act="oto-now"${S.otoBusy ? ' disabled' : ''}>${S.otoBusy ? '<span class="spin"></span>Memperbarui…' : ic('download') + 'Perbarui data'}</button></div>`;
     if (ulang) h += `<p class="tiny muted" style="margin:8px 0 0">${ulang} kiriman ulang diabaikan: ${jenis === 'tes' ? 'pretes dan postes' : 'refleksi'} hanya sekali, yang dihitung kiriman pertama.</p>`;
     if (tunda) h += `<div class="banner warn small" style="margin-top:10px">${ic('alert')}<div><b>${tunda} jawaban baru</b> di Google Form belum masuk karena laporan ini sudah disahkan.
@@ -1514,7 +1519,10 @@
   function uploadBtn(key, label) { return `<label class="btn upl">${label}<input type="file" accept="image/*,application/pdf,.pdf" multiple data-up="${esc(key)}"></label>`; }
   function step5(rep, s, sil) {
     const L = rep.lampiran;
-    const lkKeys = sil.lk.concat(Object.keys(L.portofolio).filter(k => !sil.lk.includes(k)));
+    // refleksi lewat Google Form: lembar refleksi tidak perlu difoto (foto lama tetap tampil)
+    const refForm = !!rep.refleksi || (S.refForm && S.refForm.has(Number(rep.no)));
+    const lkKeys = sil.lk.concat(Object.keys(L.portofolio).filter(k => !sil.lk.includes(k)))
+      .filter(k => !(refForm && /refleksi/i.test(k) && !(L.portofolio[k] || []).length));
     if (!lkKeys.includes('Lainnya')) lkKeys.push('Lainnya');
     // a & b dibuat otomatis; scan lama (bila pernah diunggah) tetap tampil dan bisa dihapus
     const scanLama = (key, list) => (list || []).length ? `<p class="small muted" style="margin-top:10px">Scan yang pernah diunggah (ikut dicetak; hapus bila tidak perlu):</p>${thumbs(list, key)}` : '';
@@ -1523,7 +1531,7 @@
       <div class="card"><h2>b. Jurnal kegiatan</h2>
       <p class="small" style="margin:0">${ic('check')} Jurnal kegiatan fasilitator dibuat otomatis (sesi, kegiatan, catatan dari langkah 3, kolom paraf, tanda tangan penanggung jawab). Tidak perlu mengunggah scan.</p>${scanLama('jurnalScan', L.jurnalScan)}</div>
       <div class="card"><h2>c. Portofolio tugas <span class="small muted">(opsional)</span></h2>
-      <p class="small muted">Foto atau PDF hasil LK peserta. Setiap halaman PDF dijadikan gambar. Bagian yang kosong tidak dicetak.</p>
+      <p class="small muted">Foto atau PDF hasil LK peserta. Setiap halaman PDF dijadikan gambar. Bagian yang kosong tidak dicetak; setiap LK dicetak mulai halaman baru.${refForm ? ' Lembar refleksi tidak perlu difoto karena refleksi diambil dari Google Form.' : ''}</p>
       ${lkKeys.map(k => `<div class="sesi"><div class="sesi-h">${esc(k)} <span class="spacer"></span>${uploadBtn('porto:' + k, '+ Foto/PDF')}</div>${thumbs(L.portofolio[k], 'porto:' + k)}</div>`).join('')}</div>
       <div class="card"><h2>d. Foto dokumentasi kegiatan *</h2>${uploadBtn('foto', '+ Tambah foto/PDF')}${thumbs(L.foto, 'foto')}
       <p class="small muted">Foto dikompres otomatis lalu disimpan ke folder sekolah di Google Drive; PDF diubah menjadi gambar per halaman. Bingkai kuning = menunggu terunggah.</p></div>`;
