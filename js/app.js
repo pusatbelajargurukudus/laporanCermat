@@ -6,6 +6,7 @@
   const JABATAN = ['', 'Kepala Sekolah', 'Guru Kelas', 'Guru Mapel', 'Tenaga Kependidikan'];
   const JABATAN_GURU = ['Guru Kelas', 'Guru Mapel', 'Tenaga Kependidikan', 'Kepala Sekolah'];
   const KELAS = ['', '1', '2', '3', '4', '5', '6'];
+  const OTO = 'Otomatis (Google Form)';   // nama pengubah saat server mengambil nilai/refleksi dari Google Form
   const PERAN = { admin: 'Admin', fasilitator: 'Fasilitator', pemantau: 'Pemantau', kepsek: 'Kepala Sekolah', guru: 'Guru' };
   const PORTAL = '../cermat/';
   const eqU = (a, b) => String(a || '').toLowerCase() === String(b || '').toLowerCase();
@@ -13,7 +14,7 @@
   const S = {
     user: null, program: {}, sekolah: [], pengguna: [], rekap: new Map(), sah: new Map(),
     local: new Map(),            // key -> { status, dirty } dari salinan lokal
-    pesertaDirty: new Set(), skDirty: new Set(), delQueue: [],
+    pesertaDirty: new Set(), pesertaHapus: {}, skDirty: new Set(), delQueue: [],
     cur: null, step: 1, imp: null, impMode: 'pre', showAll: false, cal: null, open: new Set(), adding: false,
     imgCache: new Map(), kopData: null, lastRekap: 0
   };
@@ -220,7 +221,14 @@
     S.user = b.user; S.program = b.program || {}; S.pengguna = b.pengguna || [];
     S.sekolah = (b.sekolah || []).map(s => Object.assign({}, s, {
       fasil: fasilOf(s),
-      peserta: S.pesertaDirty.has(s.id) && prev.get(s.id) ? prev.get(s.id) : (b.peserta || []).filter(p => p.sekolahId === s.id).map(p => ({ id: p.id, nama: p.nama, jabatan: p.jabatan, kelas: p.kelas, alias: arrOf(p.alias), gabungan: arrOf(p.gabungan) }))
+      peserta: (() => {
+        const srv = (b.peserta || []).filter(p => p.sekolahId === s.id).map(p => ({ id: p.id, nama: p.nama, jabatan: p.jabatan, kelas: p.kelas, alias: arrOf(p.alias), gabungan: arrOf(p.gabungan), periksa: !!p.periksa }));
+        if (!(S.pesertaDirty.has(s.id) && prev.get(s.id))) return srv;
+        // isian lokal belum terkirim: tetap dipakai, ditambah peserta baru yang diambil server dari Google Form
+        const lok = prev.get(s.id), ada = new Set(lok.map(p => p.id)), hapus = new Set(S.pesertaHapus[s.id] || []);
+        lok.forEach(p => arrOf(p.gabungan).forEach(g => hapus.add(g)));
+        return lok.concat(srv.filter(p => p.periksa && !ada.has(p.id) && !hapus.has(p.id)));
+      })()
     }));
     S.sekolah.forEach(s => {
       const old = prevSk.get(s.id);   // isian yang belum sempat tersimpan tidak boleh tertimpa
@@ -389,9 +397,10 @@
         }
         for (const sid of [...S.pesertaDirty]) {
           const s = school(sid);
-          try { if (s) await API.call('savePeserta', { sekolahId: sid, peserta: s.peserta || [] }); }
+          try { if (s) await API.call('savePeserta', { sekolahId: sid, peserta: s.peserta || [], hapus: S.pesertaHapus[sid] || [] }); }
           catch (e) { if (e.offline || e.code === 'AUTH') throw e; toast('Peserta ' + (s ? s.nama : '') + ': ' + e.message, true, 5000); }
           S.pesertaDirty.delete(sid); await kvSet('pesertaDirty', [...S.pesertaDirty]);
+          delete S.pesertaHapus[sid]; await kvSet('pesertaHapus', S.pesertaHapus);
         }
         for (const rep of (await DB.all('reports')).filter(r => r._dirty && !r._conflict)) {
           if (hasTmp(rep)) continue;
@@ -421,6 +430,17 @@
       res = await API.call('saveReport', { report: stripLocal(rep), baseVersion: rep._version || 0, force: !!rep._force, meta });
     } catch (e) {
       if (e.code === 'CONFLICT') {
+        if (e.extra && e.extra.updatedBy === OTO) {
+          // yang mengubah server (nilai otomatis dari Google Form): gabungkan lalu kirim ulang, tanpa pilihan bentrok
+          try {
+            const g = await API.call('getReport', { key: rep.key });
+            const latest = await DB.get('reports', rep.key) || rep;
+            mergeOto(latest, g.report); latest._version = g.version; await DB.put('reports', latest, rep.key);
+            if (S.cur && S.cur.key === rep.key) { mergeOto(S.cur, g.report); S.cur._version = g.version; if (location.hash.startsWith('#/laporan/')) rerenderStep(true); }
+            refreshRekap(true); Sync.schedule(500);
+            return;
+          } catch (x) { /* lanjut sebagai bentrok biasa */ }
+        }
         const c = { by: e.extra.updatedBy, at: e.extra.updatedAt, version: e.extra.version };
         const latest = await DB.get('reports', rep.key) || rep; latest._conflict = c; await DB.put('reports', latest, rep.key);
         if (S.cur && S.cur.key === rep.key) { S.cur._conflict = c; if (location.hash.startsWith('#/laporan/')) rerenderStep(); }
@@ -546,6 +566,7 @@
       if (!same) fresh = true;
     }
     S.pesertaDirty = new Set((await DB.get('kv', 'pesertaDirty')) || []);
+    S.pesertaHapus = (await DB.get('kv', 'pesertaHapus')) || {};
     S.delQueue = (await DB.get('kv', 'delQueue')) || [];
     const prevBoot = await DB.get('kv', 'boot');
     if (fresh && prevBoot && S.user && !eqU(prevBoot.user.username, S.user.username)) { await DB.wipe(); S.pesertaDirty = new Set(); S.delQueue = []; }
@@ -755,7 +776,7 @@
           ${canEdit(s) && (s.peserta || []).length > 1 ? `<button class="btn sm ghost" data-act="gabung" data-sid="${s.id}">${ic('users')}Gabungkan nama ganda</button>` : ''}
           <button class="btn sm ghost" data-act="paste-toggle" data-sid="${s.id}">Tempel daftar sekaligus</button></div>
         ${guru.length ? `<div class="tbwrap"><table class="tb"><thead><tr><th style="width:46%">Nama (dengan gelar)</th><th>Jabatan</th><th style="width:96px">Kelas</th><th style="width:44px"></th></tr></thead><tbody>
-          ${guru.map(p => `<tr><td><input type="text" data-pn="${s.id}|${p.id}" value="${esc(p.nama)}"></td>
+          ${guru.map(p => `<tr><td><input type="text" data-pn="${s.id}|${p.id}" value="${esc(p.nama)}">${p.periksa ? `<div class="pcek"><span class="pill gold">baru dari Google Form · periksa</span>${canEdit(s) ? `<button class="lnkbtn" data-act="ps-ok" data-sid="${s.id}" data-id="${p.id}">Sudah benar</button>` : ''}</div>` : ''}</td>
             <td><select data-pj="${s.id}|${p.id}|jabatan">${opts(JABATAN, p.jabatan, ['— jabatan —'].concat(JABATAN.slice(1)))}</select></td>
             <td><select data-pj="${s.id}|${p.id}|kelas"${p.jabatan === 'Guru Kelas' ? '' : ' disabled'}>${opts(KELAS, p.kelas, ['–', '1', '2', '3', '4', '5', '6'])}</select></td>
             <td><button class="iconbtn" data-act="del-peserta" data-sid="${s.id}" data-id="${p.id}" title="Hapus">${ic('trash')}</button></td></tr>`).join('')}
@@ -916,12 +937,43 @@
     if (await refreshRekap(true)) { if (S.cur && S.cur.key === k0 && location.hash.startsWith('#/laporan/') && JSON.stringify(S.sah.get(k0) || []) !== before && !document.activeElement.matches('input,textarea,select')) renderEditor(); }
   }
 
+  /* Laporan yang sedang terbuka: tiap menit periksa apakah ada versi baru (nilai otomatis atau fasil lain). */
+  setInterval(async () => {
+    if (!S.cur || !location.hash.startsWith('#/laporan/') || document.hidden || navigator.onLine === false || !API.token || S.otoBusy) return;
+    const key = S.cur.key;
+    try {
+      const v = await API.call('reportVersi', { key });
+      const rk = S.rekap.get(key), lama = JSON.stringify(rk && rk.oto || {});
+      if (rk && v.oto) rk.oto = v.oto;
+      if (v.version > ((S.cur && S.cur._version) || 0)) { await refreshFromServer(key); S.lastRekap = 0; refreshRekap(true); }
+      else if (rk && JSON.stringify(v.oto || {}) !== lama && S.cur && S.cur.key === key && !document.activeElement.matches('input,textarea,select')) rerenderStep(true);
+    } catch (e) { /* coba lagi menit berikutnya */ }
+  }, 60000);
+
+  /* Perubahan dari pengambilan nilai otomatis digabung ke isian lokal yang belum terkirim (tanpa bentrok). */
+  function mergeOto(loc, srv) {
+    srv = srv || {};
+    if (srv.tes && srv.tes.otomatis) loc.tes = srv.tes;
+    if (srv.refleksi && srv.refleksi.otomatis) {
+      const lama = loc.refleksi;
+      loc.refleksi = Object.assign({}, srv.refleksi);
+      if (lama && lama.kesEdit) { loc.refleksi.kesimpulan = lama.kesimpulan; loc.refleksi.kesEdit = true; }
+      if (lama && typeof lama.arti === 'string') loc.refleksi.arti = lama.arti;
+    }
+    const lepas = new Set(loc.hadirLepas || []);
+    loc.hadir = [...new Set((loc.hadir || []).concat((srv.hadir || []).filter(id => !lepas.has(id))))];
+    if (srv.otomatis) loc.otomatis = srv.otomatis;
+    if (loc.refleksi) { loc.capaian = loc.capaian || {}; loc.capaianManual = loc.capaianManual || {}; hitungCapaian(loc); }
+    return loc;
+  }
+
   async function refreshFromServer(key) {
     try {
       const g = await API.call('getReport', { key });
       if (!S.cur || S.cur.key !== key || !g.report) return;
       if (g.version > (S.cur._version || 0)) {
         if (!S.cur._dirty) { S.cur = normalize(Object.assign(g.report, { _version: g.version })); await DB.put('reports', clone(S.cur), key); }
+        else if (g.updatedBy === OTO) { mergeOto(S.cur, g.report); S.cur._version = g.version; await DB.put('reports', clone(S.cur), key); }
         else S.cur._conflict = { by: g.updatedBy, at: g.updatedAt, version: g.version };
         if (location.hash.startsWith('#/laporan/')) renderEditor();
       }
@@ -1198,7 +1250,7 @@
     const dis = ed && !isKs ? '' : ' disabled';
     return `<div class="pr">
       ${withCheck ? `<input type="checkbox" data-act="hadir" data-id="${p.id}"${hadirSet.has(p.id) ? ' checked' : ''}${ed ? '' : ' disabled'}>` : '<span></span>'}
-      <div class="nm">${esc(p.nama)}${extra}</div>
+      <div class="nm">${esc(p.nama)}${p.periksa ? ' <span class="pill gold sm">periksa</span>' : ''}${extra}</div>
       <select class="pj" data-pj="${s.id}|${p.id}|jabatan"${dis}>${opts(JABATAN, p.jabatan, ['— jabatan —'].concat(JABATAN.slice(1)))}</select>
       <select class="pk" data-pj="${s.id}|${p.id}|kelas"${p.jabatan === 'Guru Kelas' && ed ? '' : ' disabled'}>${opts(KELAS, p.kelas, ['kelas', '1', '2', '3', '4', '5', '6'])}</select>
       <span></span>
@@ -1231,6 +1283,19 @@
   }
 
   /* Kartu nilai: mode 'pre' (langkah 2) atau 'post' (langkah 3). Satu file Google Form berisi pretes + postes. */
+  /* Status pengambilan otomatis dari Google Form + tombol Perbarui data. jenis: 'tes' | 'ref' */
+  function otoInfo(rep, jenis) {
+    const rk = S.rekap.get(rep.key) || {}, oto = rk.oto || {};
+    const at = rep.otomatis && rep.otomatis[jenis] && rep.otomatis[jenis].at, cek = oto[jenis + 'Cek'], tunda = Number(oto[jenis + 'Tunda']) || 0;
+    const ulang = Number(((jenis === 'tes' ? rep.tes : rep.refleksi) || {}).ulang) || 0;
+    let h = `<div class="otobar"><div class="small">${ic('cloud')}<span>Diambil <b>otomatis</b> dari Google Form setiap ±15 menit${at ? ` · data terakhir masuk ${esc(fmtWaktu(at))}` : ' · belum ada jawaban yang masuk'}${cek ? ` · diperiksa ${esc(fmtWaktu(cek))}` : ''}</span></div>
+      <button class="btn sm" data-act="oto-now"${S.otoBusy ? ' disabled' : ''}>${S.otoBusy ? '<span class="spin"></span>Memperbarui…' : ic('download') + 'Perbarui data'}</button></div>`;
+    if (ulang) h += `<p class="tiny muted" style="margin:8px 0 0">${ulang} kiriman ulang diabaikan: ${jenis === 'tes' ? 'pretes dan postes' : 'refleksi'} hanya sekali, yang dihitung kiriman pertama.</p>`;
+    if (tunda) h += `<div class="banner warn small" style="margin-top:10px">${ic('alert')}<div><b>${tunda} jawaban baru</b> di Google Form belum masuk karena laporan ini sudah disahkan.
+      ${canFill(school(rep.sekolahId)) ? `<div class="row" style="margin-top:8px"><button class="btn sm" data-act="oto-paksa">Masukkan sekarang</button><span class="tiny muted">Pengesahan yang sudah ada akan batal.</span></div>` : ' Fasilitator bisa memasukkannya.'}</div></div>`;
+    return h;
+  }
+
   function tesCard(rep, s, mode) {
     const judul = mode === 'pre' ? 'Pretes' : 'Postes';
     let h = `<div class="card"><div class="card-h">${ic('file')}<h2>${judul}</h2><span class="spacer"></span>${rep.tes ? `<span class="tiny muted">${esc(rep.tes.fileName)}</span>` : ''}</div>`;
@@ -1242,23 +1307,23 @@
     const uploadBtn = (label, pri) => adaForm ? '' : `<label class="btn ${pri ? 'pri ' : ''}upl">${ic('upload')}${label}${fileInp}</label>`;
     const cadangan = () => adaForm ? `<p class="small muted" style="margin:8px 0 0">Server tidak bisa membuka form? <label class="lnk upl">pakai file CSV/Excel${fileInp}</label></p>` : '';
     // nilai langsung dari Google Form (tautan diisi admin di Pustaka CERMAT → Pretes & Postes)
-    const formBtn = (label, pri) => `<button class="btn ${pri ? 'pri' : ''}" data-act="imp-form" data-mode="${mode}"${S.impForm ? ' disabled' : ''}>${S.impForm ? '<span class="spin"></span>' : ic('download')}${S.impForm ? 'Mengambil jawaban…' : label}</button>`;
+    const formBtn = (label, pri) => adaForm ? '' : `<button class="btn ${pri ? 'pri' : ''}" data-act="imp-form" data-mode="${mode}"${S.impForm ? ' disabled' : ''}>${S.impForm ? '<span class="spin"></span>' : ic('download')}${S.impForm ? 'Mengambil jawaban…' : label}</button>`;
     const rowsTable = jenis => `<details class="adv"><summary>Lihat nilai ${jenis === 'pre' ? 'pretes' : 'postes'} per peserta</summary>
       <table class="simple"><tbody>${rep.tes.rows.filter(r => r.jenis === jenis).sort((a, b) => a.nama.localeCompare(b.nama)).map(r => `<tr><td>${esc(r.nama)}</td><td style="width:90px;text-align:right">${R.fmt(r.skor)}</td></tr>`).join('')}</tbody></table></details>`;
     if (mode === 'pre') {
       if (st && st.preN) {
         h += `<div class="stats"><div class="stat"><b>${R.fmt(st.pre)}</b><span>rata-rata pretes · ${st.preN} peserta</span></div></div>
-          <div class="banner ${st.postN ? 'ok' : 'info'} small" style="margin-top:12px">${ic(st.postN ? 'check' : 'info')}<div>${st.postN ? `Postes juga sudah terbaca dari file yang sama (<b>${st.postN}</b> peserta) — tampil di langkah 3.` : 'Postes belum ada di file ini. Di langkah 3 Anda bisa mengunggah file terbaru setelah postes dikerjakan.'}</div></div>
+          <div class="banner ${st.postN ? 'ok' : 'info'} small" style="margin-top:12px">${ic(st.postN ? 'check' : 'info')}<div>${st.postN ? `Postes juga sudah ${adaForm ? 'masuk' : 'terbaca dari file yang sama'} (<b>${st.postN}</b> peserta) — tampil di langkah 3.` : adaForm ? 'Postes belum ada. Nilainya masuk otomatis setelah peserta mengerjakan postes, tampil di langkah 3.' : 'Postes belum ada di file ini. Di langkah 3 Anda bisa mengunggah file terbaru setelah postes dikerjakan.'}</div></div>
           ${rowsTable('pre')}
-          <div class="row ro-hide" style="margin-top:12px">${formBtn('Perbarui dari Google Form')}${uploadBtn('Unggah ulang file')}<button class="btn danger" data-act="tes-del">${ic('trash')}Hapus data nilai</button></div><div class="ro-hide">${cadangan()}</div>`;
+          ${adaForm ? `<div style="margin-top:12px">${otoInfo(rep, 'tes')}</div>` : `<div class="row ro-hide" style="margin-top:12px">${formBtn('Perbarui dari Google Form')}${uploadBtn('Unggah ulang file')}<button class="btn danger" data-act="tes-del">${ic('trash')}Hapus data nilai</button></div>`}<div class="ro-hide">${cadangan()}</div>`;
+        return h + '</div>';
+      }
+      if (adaForm) {
+        h += `<p style="margin-top:-4px">Nilai masuk <b>otomatis dari Google Form</b> pendampingan ini: jawaban <b>${esc(s.nama)}</b> disaring, pretes & postes dipisahkan, dan peserta yang mengerjakan dicentang hadir.</p>
+        ${otoInfo(rep, 'tes')}<div class="ro-hide">${cadangan()}</div>`;
         return h + '</div>';
       }
       if (readOnly) return h + '<p class="muted" style="margin:0">Pretes belum diunggah.</p></div>';
-      if (adaForm) {
-        h += `<p style="margin-top:-4px">Nilai diambil <b>langsung dari Google Form</b> pendampingan ini. Baris <b>${esc(s.nama)}</b> disaring otomatis dan pretes & postes dipisahkan.</p>
-        <div class="row">${formBtn('Ambil nilai dari Google Form', true)}</div>${cadangan()}`;
-        return h + '</div>';
-      }
       h += `<p style="margin-top:-4px">Ambil jawaban <b>langsung dari Google Form</b> pendampingan ini, atau unggah file respons. Pretes dan postes boleh dalam satu form/file berisi semua sekolah; aplikasi otomatis menyaring baris <b>${esc(s.nama)}</b> dan memisahkan pretes & postes.</p>
         <div class="row">${formBtn('Ambil nilai dari Google Form', true)}${uploadBtn('Pilih file .csv / .xlsx')}</div>
         <p class="small muted" style="margin:8px 0 0">File: Google Form → Respons → Lihat di Spreadsheet → File → Download.</p>
@@ -1277,9 +1342,10 @@
         h += `<div class="banner warn small" style="margin-top:12px">${ic('alert')}<div>${st.onlyPre.length ? `<b>Hanya ikut pretes:</b> ${esc(st.onlyPre.join(', '))}. ` : ''}${st.onlyPost.length ? `<b>Hanya ikut postes:</b> ${esc(st.onlyPost.join(', '))}.` : ''}
           Rata-rata tiap tes dihitung dari semua yang mengerjakannya. Catatan ini tidak masuk ke PDF.</div></div>`;
       }
-      h += rowsTable('post') + `<div class="row ro-hide" style="margin-top:12px">${formBtn('Perbarui dari Google Form')}${uploadBtn('Unggah file terbaru')}</div><div class="ro-hide">${cadangan()}</div>`;
+      h += rowsTable('post') + (adaForm ? `<div style="margin-top:12px">${otoInfo(rep, 'tes')}</div>` : `<div class="row ro-hide" style="margin-top:12px">${formBtn('Perbarui dari Google Form')}${uploadBtn('Unggah file terbaru')}</div>`) + `<div class="ro-hide">${cadangan()}</div>`;
       return h + '</div>';
     }
+    if (adaForm) return h + `<div class="banner info small" style="margin-bottom:12px">${ic('info')}<div>Postes belum ada. Nilai postes masuk otomatis setelah peserta mengerjakannya.</div></div>${otoInfo(rep, 'tes')}<div class="ro-hide">${cadangan()}</div></div>`;
     if (readOnly) return h + '<p class="muted" style="margin:0">Postes belum ada.</p></div>';
     h += st && st.preN
       ? `<div class="banner warn small">${ic('alert')}<div>${adaForm ? 'Postes belum ada. Setelah peserta mengerjakan postes, klik <b>Ambil nilai dari Google Form</b> lagi — pretes ikut diperbarui.' : 'Postes belum ada di file yang diunggah di langkah 2. Setelah peserta mengerjakan postes, unduh ulang respons Google Form lalu unggah di sini — pretes yang sudah ada ikut diperbarui.'}</div></div>`
@@ -1470,6 +1536,7 @@
     if (S.imp && S.impMode === 'ref') return h + impMapping(rep, s) + '</div>';
     const btnForm = label => `<button class="btn ${R0 ? '' : 'pri'}" data-act="ref-form"${S.impForm ? ' disabled' : ''}>${S.impForm ? '<span class="spin"></span>Mengambil jawaban…' : ic('download') + label}</button>`;
     if (!R0) {
+      if (adaForm) return h + `<p style="margin-top:-4px">Jawaban refleksi <b>${esc(s.nama)}</b> masuk <b>otomatis dari Google Form</b>. Aplikasi menyusun rangkuman analisis dan kesimpulan yang tercetak di laporan; peserta yang mengisi dicentang hadir.</p>${otoInfo(rep, 'ref')}</div>`;
       if (readOnly) return h + '<p class="muted" style="margin:0">Refleksi belum diambil.</p></div>';
       return h + `<p style="margin-top:-4px">Ambil jawaban refleksi <b>${esc(s.nama)}</b> langsung dari Google Form. Aplikasi menyusun rangkuman analisis dan kesimpulan yang tercetak di laporan; peserta yang mengisi dicentang hadir.</p>
         <div class="row">${btnForm('Ambil refleksi dari Google Form')}</div></div>`;
@@ -1489,7 +1556,8 @@
       ${(rows => `<details class="adv"><summary>Rincian per pertanyaan (${rows.length})</summary><table class="simple"><tbody>
         ${rows.map(([q, k]) => `<tr><td style="width:42%"><b>${esc(q)}</b></td><td class="small">${esc(k)}</td></tr>`).join('')}</tbody></table></details>`)([].concat(...R0.items.map(o => I.refBaris(o))))}
       <details class="adv"><summary>Yang mengisi (${R0.n})</summary><p class="small">${esc((R0.nama || []).join(', '))}</p></details>`;
-    if (!readOnly) h += `<div class="row ro-hide" style="margin-top:12px">${btnForm('Perbarui dari Google Form')}
+    if (adaForm) h += `<div style="margin-top:12px">${otoInfo(rep, 'ref')}</div>${!readOnly && R0.kesEdit ? `<div class="row ro-hide" style="margin-top:10px"><button class="btn ghost" data-act="ref-susun">Susun ulang kesimpulan</button></div>` : ''}`;
+    else if (!readOnly) h += `<div class="row ro-hide" style="margin-top:12px">${btnForm('Perbarui dari Google Form')}
       ${R0.kesEdit ? `<button class="btn ghost" data-act="ref-susun">Susun ulang kesimpulan</button>` : ''}
       <button class="btn danger" data-act="ref-del">${ic('trash')}Hapus data refleksi</button></div>`;
     return h + '</div>';
@@ -1507,12 +1575,12 @@
       const imp = { kind: 'ref', an, fileName: 'Google Form: ' + (d.judul || 'Refleksi P' + rep.no), cols: Object.assign({}, c), schools: new Set(), auto: true };
       autoSchools(imp, s);
       if (!imp.schools.size) { toast('Belum ada refleksi dari ' + s.nama + ' di form ini.', true, 6000); return; }
-      // baris sekolah ini; bila seseorang mengirim lebih dari sekali, kiriman terakhir yang dipakai
+      // baris sekolah ini; bila seseorang mengirim lebih dari sekali, kiriman PERTAMA yang dipakai (refleksi tidak boleh diulang)
       const last = new Map();
       an.body.forEach((row, i) => {
         if (!imp.schools.has(String(row[c.sekolah] || '').trim())) return;
         const nm = String(row[c.nama] || '').trim(); if (!nm) return;
-        last.set(I.normName(nm), { nama: nm, jabatanRaw: c.jabatan >= 0 ? row[c.jabatan] : '', jenis: 'ref', idx: i });
+        if (!last.has(I.normName(nm))) last.set(I.normName(nm), { nama: nm, jabatanRaw: c.jabatan >= 0 ? row[c.jabatan] : '', jenis: 'ref', idx: i });
       });
       imp.exRef = { rows: [...last.values()] };
       imp.ref = { items: d.items || [], jawab: d.jawab || [], judul: d.judul || '', ketForm: d.ketForm || '', abaikan: [c.nama, c.sekolah, c.jabatan, c.pendampingan].filter(x => x >= 1).map(x => x - 1) };
@@ -1752,8 +1820,8 @@
       hadir.add(p.id);
     });
     if (imp.kind === 'ref') {
-      // satu jawaban per orang (kiriman terakhir), lalu dianalisis
-      const byP = new Map(); rows.forEach(r => byP.set(r.nama, r));
+      // satu jawaban per orang (kiriman pertama), lalu dianalisis
+      const byP = new Map(); rows.forEach(r => { if (!byP.has(r.nama)) byP.set(r.nama, r); });
       const ikut = [...byP.values()];
       const an = I.refAnalisis(imp.ref.items, ikut.map(r => imp.ref.jawab[r.idx] || []), imp.ref.abaikan, imp.ref.ketForm);
       rep.hadir = [...hadir];
@@ -1770,7 +1838,7 @@
       return;
     }
     const byKey = new Map();
-    rows.forEach(r => byKey.set(r.jenis + '|' + I.normName(r.nama), r));
+    rows.forEach(r => { const k = r.jenis + '|' + I.normName(r.nama); if (!byKey.has(k)) byKey.set(k, r); });   // kiriman pertama
     rep.tes = { fileName: imp.fileName, importedAt: Date.now(), rows: [...byKey.values()] };
     const newAlias = [...imp.schools].filter(v => v.trim().toLowerCase() !== s.nama.trim().toLowerCase() && !(s.alias || []).includes(v));
     if (newAlias.length && canEdit(s)) { s.alias = (s.alias || []).concat(newAlias); saveSekolahDeb(s.id); }
@@ -2362,7 +2430,13 @@
       case 'del-peserta': {
         const sk = school(b.dataset.sid);
         sk.peserta = sk.peserta.filter(p => p.id !== b.dataset.id);
+        (S.pesertaHapus[sk.id] = S.pesertaHapus[sk.id] || []).push(b.dataset.id); kvSet('pesertaHapus', S.pesertaHapus);
         S.open.add(sk.id); markPeserta(sk.id); renderSekolah(); break;
+      }
+      case 'ps-ok': {
+        const sk = school(b.dataset.sid), p = sk && (sk.peserta || []).find(x => x.id === b.dataset.id);
+        if (p && canEdit(sk)) { p.periksa = false; S.open.add(sk.id); markPeserta(sk.id); renderSekolah(); }
+        break;
       }
       case 'cal': {
         const pop = document.getElementById('calpop');
@@ -2431,14 +2505,14 @@
       }
       case 'tempat-sekolah': rep.tempat = s.nama; document.querySelector('[data-r=tempat]').value = s.nama; touch(); updatePreviews(); break;
       case 'hadir': {
-        const set = new Set(rep.hadir || []);
-        b.checked ? set.add(b.dataset.id) : set.delete(b.dataset.id);
-        rep.hadir = [...set]; touch(); updatePreviews(); break;
+        const set = new Set(rep.hadir || []), lepas = new Set(rep.hadirLepas || []);
+        if (b.checked) { set.add(b.dataset.id); lepas.delete(b.dataset.id); } else { set.delete(b.dataset.id); lepas.add(b.dataset.id); }   // dicabut fasil: tidak dicentang lagi oleh nilai otomatis
+        rep.hadir = [...set]; rep.hadirLepas = [...lepas]; touch(); updatePreviews(); break;
       }
       case 'hadir-all': case 'hadir-none': {
-        const set = new Set(rep.hadir || []);
-        R.relevantPeserta(s, rep.no, S.showAll).forEach(p => act === 'hadir-all' ? set.add(p.id) : set.delete(p.id));
-        rep.hadir = [...set]; touch(); rerenderStep(); break;
+        const set = new Set(rep.hadir || []), lepas = new Set(rep.hadirLepas || []);
+        R.relevantPeserta(s, rep.no, S.showAll).forEach(p => { if (act === 'hadir-all') { set.add(p.id); lepas.delete(p.id); } else { set.delete(p.id); lepas.add(p.id); } });
+        rep.hadir = [...set]; rep.hadirLepas = [...lepas]; touch(); rerenderStep(); break;
       }
       case 'showall': S.showAll = b.checked; rerenderStep(); break;
       case 'add-peserta': {
@@ -2453,6 +2527,19 @@
       case 'imp-cancel': S.imp = null; rerenderStep(); break;
       case 'imp-apply': applyImport(); break;
       case 'imp-form': importForm(b.dataset.mode); break;
+      case 'oto-now': case 'oto-paksa': {
+        if (act === 'oto-paksa' && !confirm('Masukkan jawaban baru dari Google Form ke laporan ini? Semua pengesahan laporan ini batal dan perlu disahkan ulang.')) return;
+        if (!navigator.onLine) return toast('Butuh internet untuk mengambil jawaban Google Form.', true);
+        if (S.otoBusy) return;
+        S.otoBusy = true; rerenderStep(true);
+        try {
+          if (rep._dirty) await Sync.run();   // isian yang belum terkirim dikirim dulu
+          const r = await API.call('nilaiPerbarui', { sekolahId: rep.sekolahId, no: rep.no, paksa: act === 'oto-paksa' });
+          await refreshFromServer(rep.key); S.lastRekap = 0; await refreshRekap(true);
+          toast(r && r.dilewati ? 'Data baru saja diperbarui (kurang dari 1 menit lalu). Tampilan sudah memakai data terbaru.' : 'Data dari Google Form sudah diperbarui.');
+        } catch (er) { toast(er.message || 'Gagal memperbarui data.', true, 6000); }
+        S.otoBusy = false; if (S.cur && S.cur.key === rep.key) rerenderStep(true); break;
+      }
       case 'ref-form': importRef(); break;
       case 'ref-susun': susunKesimpulan(S.cur); touch(); rerenderStep(true); toast('Kesimpulan disusun ulang dari jawaban refleksi.'); break;
       case 'ref-del': if (confirm('Hapus data refleksi dari laporan ini? Jawaban di Google Form tidak terhapus dan bisa diambil lagi.')) { S.cur.refleksi = null; hitungCapaian(S.cur); touch(); rerenderStep(true); } break;
@@ -2564,7 +2651,7 @@
     }
     if (t.dataset.pn) {
       const [sid, pid] = t.dataset.pn.split('|'); const sk = school(sid); if (!canEdit(sk)) return;
-      const p = sk.peserta.find(x => x.id === pid); if (p) { p.nama = t.value; markPeserta(sid); }
+      const p = sk.peserta.find(x => x.id === pid); if (p) { p.nama = t.value; p.periksa = false; markPeserta(sid); }
       return;
     }
     if (!rep || readOnly) return;
@@ -2622,7 +2709,7 @@
       const [sid, pid, f] = t.dataset.pj.split('|');
       const sk = school(sid); if (!canEdit(sk)) return;
       const p = sk.peserta.find(x => x.id === pid);
-      p[f] = t.value; if (f === 'jabatan' && t.value !== 'Guru Kelas') p.kelas = '';
+      p[f] = t.value; p.periksa = false; if (f === 'jabatan' && t.value !== 'Guru Kelas') p.kelas = '';
       markPeserta(sid);
       if (rep) { if (rep.no && R.groupKelas(rep.no)) touch(); rerenderStep(); } else { S.open.add(sid); renderSekolah(); }
       return;

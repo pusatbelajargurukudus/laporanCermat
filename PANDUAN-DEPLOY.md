@@ -1,4 +1,4 @@
-# Panduan Pemasangan LAPORAN CERMAT v3.10.1
+# Panduan Pemasangan LAPORAN CERMAT v3.11
 
 Aplikasi terdiri dari dua bagian:
 
@@ -98,6 +98,17 @@ Pemasangan cukup **sekali**, sekitar 15 menit.
 4. Buka aplikasi dan tekan **Ctrl+Shift+R** sekali.
 
 Data lama tetap aman. Kolom baru di Sheets ditambahkan otomatis.
+
+**Catatan v3.11 (server 3.5.0) — Apps Script BERUBAH; deploy versi baru, lalu jalankan `pasangNilai` sekali:**
+1. Ganti isi `Code.gs` → Ctrl+S → Deploy → Manage deployments → ✏ → **New version** → Deploy.
+2. Di editor Apps Script, pilih fungsi **`pasangNilai`** di daftar fungsi → **Run**. Izin pemicu sudah ada sejak `pasangMateri`; bila tetap diminta, izinkan. Pemicu `nilaiJadwal` tiap 15 menit terpasang dan langsung berjalan sekali.
+- **Nilai otomatis.** Pretes, postes & refleksi dari Google Form masuk sendiri ke laporan setiap sekolah (tombol Ambil nilai/Ambil refleksi dihapus). Hanya form yang dibuka fasilitator dalam 36 jam terakhir dan punya jawaban baru yang dibaca. Tombol **Perbarui data** di laporan & kartu Progres mengambil saat itu juga (paling sering 1x/menit per sekolah).
+- **Nama:** sama / ejaan tercatat / sangat mirip → peserta itu (ejaan diingat); nama baru → peserta baru bertanda "periksa" di Data guru (tombol "Sudah benar" atau Gabungkan nama ganda).
+- **Tidak ditimpa:** centang hadir yang dicabut fasil, kesimpulan refleksi yang diedit, arti skor ketikan fasil, capaian pilihan fasil untuk indikator yang tidak cocok refleksi.
+- **Sudah disahkan:** laporan tidak diubah lagi; jawaban baru ditandai "N jawaban baru belum masuk". Fasil bisa "Masukkan sekarang" (pengesahan batal).
+- **Hanya sekali:** pretes, postes, dan refleksi dihitung dari kiriman pertama; kiriman ulang diabaikan. Di portal, nama yang sudah mengirim tidak bisa dipilih (aksi `tesSudah`).
+- Sheet Peserta mendapat kolom `periksa`, Rekap kolom `oto` (otomatis).
+- Kode pengolah nilai (`js/importer.js`) disalin ke bagian bawah `Code.gs`; jangan diubah di sana.
 
 **Catatan v3.10.1 (server 3.4.1) — hanya Apps Script berubah, deploy versi baru:**
 - Progres Pendampingan: fasilitator hanya melihat sekolah binaannya sendiri (server menolak sekolah lain). Admin dan pemantau tetap semua sekolah.

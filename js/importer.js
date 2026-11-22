@@ -233,11 +233,12 @@
   };
 
   /* Ambil baris milik sekolah terpilih -> [{nama, jabatanRaw, jenis, skor}]
-   * Peserta yang mengirim lebih dari sekali untuk tes yang sama: diambil kiriman terakhir. */
+   * Peserta yang mengirim lebih dari sekali untuk tes yang sama: yang dihitung kiriman PERTAMA
+   * (pretes/postes tidak boleh diulang); kiriman berikutnya dihitung di skipped.ulang. */
   U.extract = function (an, cols, schoolValues, noPendampingan) {
     const set = new Set(schoolValues);
     const out = new Map();
-    let skipped = { jenis: 0, skor: 0, pendampingan: 0 };
+    let skipped = { jenis: 0, skor: 0, pendampingan: 0, ulang: 0 };
     an.body.forEach(r => {
       const sv = String(r[cols.sekolah] || '').trim();
       if (!set.has(sv)) return;
@@ -253,6 +254,7 @@
       const nama = String(r[cols.nama] || '').trim();
       if (!nama) return;
       const key = jenis + '|' + U.normName(nama);
+      if (out.has(key)) { skipped.ulang++; return; }
       out.set(key, { nama, jabatanRaw: cols.jabatan >= 0 ? String(r[cols.jabatan] || '').trim() : '', jenis, skor });
     });
     return { rows: Array.from(out.values()), skipped };
@@ -268,7 +270,8 @@
     'telah sedang tentang antara banyak hanya mungkin ketika begitu sangat cukup sama apa bagaimana kenapa mengapa siapa kapan dimana tsb ' +
     'yg dgn utk tdk sy kmi akan oleh pak bu ibu bapak murid siswa anak guru kelas pembelajaran belajar membuat menjadi memakai melakukan menggunakan').split(' '));
   const pct = (a, b) => b ? Math.round(a * 100 / b) : 0;
-  const num1 = v => Number(v).toLocaleString('id-ID', { maximumFractionDigits: 1 });
+  // satu desimal, koma Indonesia (tanpa Intl: hasilnya sama di peramban dan di server Apps Script)
+  const num1 = v => { const r = Math.round(Number(v) * 10) / 10; const [a, d] = String(Math.abs(r)).split('.'); return (r < 0 ? '-' : '') + a.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + (d ? ',' + d : ''); };
   const potong = (t, n) => { t = String(t || '').replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1).replace(/\s+\S*$/, '') + '…' : t; };
   const daftarKata = arr => arr.length <= 1 ? arr.join('') : arr.slice(0, -1).join(', ') + ' dan ' + arr[arr.length - 1];
   const kosong = v => v === null || v === undefined || (Array.isArray(v) ? !v.filter(x => String(x || '').trim()).length : !String(v).trim());
@@ -533,5 +536,5 @@
     return out;
   };
 
-  window.Importer = U;
+  (typeof window !== 'undefined' ? window : this).Importer = U;
 })();

@@ -559,3 +559,9 @@ a.pick:hover, a.pcard:hover { border-color: var(--gold-l); }
 .seg.kunci button.on:disabled { color: #fff; }
 .segkunci { display: inline-flex; align-items: center; padding: 0 8px; color: var(--muted, #6b7487); }
 .segkunci svg { width: 14px; height: 14px; }
+/* nilai otomatis dari Google Form */
+.otobar { display: flex; align-items: center; justify-content: space-between; gap: 10px 14px; flex-wrap: wrap; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--navy-soft); }
+.otobar > div { display: flex; align-items: flex-start; gap: 8px; min-width: 0; flex: 1 1 260px; color: var(--navy); }
+.otobar > div svg { flex: none; margin-top: 2px; }
+.pcek { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+.pill.sm { font-size: .66rem; padding: 2px 7px; vertical-align: 1px; }
