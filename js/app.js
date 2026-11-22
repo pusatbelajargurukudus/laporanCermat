@@ -45,6 +45,7 @@
     x: '<path d="M18 6 6 18M6 6l12 12"/>',
     calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/>',
     cloud: '<path d="M7 18a5 5 0 1 1 .9-9.9A6 6 0 0 1 19 10a4 4 0 0 1-1 8z"/>',
+    chart: '<path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/>',
     star: '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3l-5.6 2.9 1.1-6.2L3 9.6l6.2-.9z"/>',
     minus: '<path d="M5 12h14"/>'
   };
@@ -605,7 +606,7 @@
    * ========================================================= */
   function navItems() {
     const u = S.user; if (!u) return [];
-    const rw = ['reward', 'Total Reward', 'star'];
+    const rw = ['progres', 'Progres', 'chart', 'Progres', PORTAL + '#/progres'];   // nilai, capaian & bintang: kartu Progres Pendampingan di Pustaka CERMAT
     if (u.peran === 'admin') return [['pengguna', 'Kelola Pengguna', 'users'], ['sekolah', 'Data Sekolah', 'school'], ['lihat', 'Lihat Laporan', 'eye'], ['unduh', 'Unduh Laporan', 'download'], rw];
     if (u.peran === 'fasilitator') return [['sekolah', 'Data Sekolah', 'school'], ['buat', 'Buat Laporan', 'edit'], ['unduh', 'Unduh Laporan', 'download'], rw];
     if (u.peran === 'kepsek') return [['pengesahan', 'Pengesahan', 'check'], ['lihat', 'Laporan Sekolah', 'file', 'Laporan'], ['unduh', 'Unduh Laporan', 'download'], rw];
@@ -616,8 +617,8 @@
     const u = S.user;
     if (!u) { nav.innerHTML = ''; usr.innerHTML = ''; tab.innerHTML = ''; return; }
     const items = navItems();
-    nav.innerHTML = items.map(([k, l, i]) => `<a href="#/${k}" data-nav="${k}">${ic(i)}<span>${l}</span></a>`).join('');
-    tab.innerHTML = items.map(([k, l, i, sh]) => `<a href="#/${k}" data-nav="${k}">${ic(i, 'lg')}<span>${sh || l.replace(' Laporan', '').replace('Kelola ', '').replace('Total ', '')}</span></a>`).join('');
+    nav.innerHTML = items.map(([k, l, i, sh, href]) => `<a href="${href || '#/' + k}" data-nav="${k}">${ic(i)}<span>${l}</span></a>`).join('');
+    tab.innerHTML = items.map(([k, l, i, sh, href]) => `<a href="${href || '#/' + k}" data-nav="${k}">${ic(i, 'lg')}<span>${sh || l.replace(' Laporan', '').replace('Kelola ', '')}</span></a>`).join('');
     usr.innerHTML = `<button class="avatar" id="avbtn" data-menu="1" aria-haspopup="true">
         <span class="nm"><b>${esc(u.nama.split(',')[0])}</b><span>${PERAN[u.peran]}</span></span>
         <span class="bubble">${esc(initials(u.nama))}<span class="sd ok"></span></span></button>
@@ -666,7 +667,7 @@
       case 'pengesahan': return isKepsek() ? renderPengesahan() : (location.hash = homeHash());
       case 'laporan': return openReport(parts[1], parseInt(parts[2], 10), parseInt(parts[3] || '1', 10));
       case 'unduh': return renderUnduh();
-      case 'reward': return renderReward();
+      case 'reward': case 'progres': location.replace(PORTAL + '#/progres'); return;   // menu lama Total Reward pindah ke Progres Pendampingan
       case 'pengguna': return isAdmin() ? renderPengguna() : (location.hash = homeHash());
       case 'program': return isAdmin() ? renderProgram() : (location.hash = homeHash());
       case 'akun': return renderAkun();
@@ -1421,7 +1422,7 @@
           </div>`;
         }).join('')}
       </div>
-      <p class="tiny muted" style="margin:10px 0 0">Tabel reward ikut tercetak di PDF setelah bagian Evaluasi. Rekap semua pendampingan ada di menu <a href="#/reward">Total Reward</a>.</p></div>`;
+      <p class="tiny muted" style="margin:10px 0 0">Tabel reward ikut tercetak di PDF setelah bagian Evaluasi. Rekap semua pendampingan ada di menu <a href="${PORTAL}#/progres">Progres</a>.</p></div>`;
   }
   function setReward(id, val) {
     const rep = S.cur; if (!rep || readOnly) return;
@@ -2051,62 +2052,6 @@
   }
 
   /* =========================================================
-   * TOTAL REWARD — rekap bintang per peserta, per pendampingan
-   * ========================================================= */
-  const rewardSchools = () => S.user && S.user.peran === 'fasilitator' ? S.sekolah.filter(s => canFill(s)) : S.sekolah;
-  function rewardMatrix(s) {
-    const per = window.SILABUS.map(p => rewardOf(s.id, p.no));
-    const rows = (s.peserta || []).map(p => {
-      const cells = per.map(r => r[p.id]);
-      const total = cells.reduce((a, v) => a + (Number(v) || 0), 0);
-      return { p, cells, total, ikut: cells.filter(v => v !== undefined).length };
-    });
-    rows.sort((a, b) => (b.total - a.total) || a.p.nama.localeCompare(b.p.nama, 'id'));
-    const colSum = per.map(r => Object.keys(r).reduce((a, id) => a + ((s.peserta || []).some(p => p.id === id) ? Number(r[id]) || 0 : 0), 0));
-    return { rows, colSum, total: colSum.reduce((a, b) => a + b, 0) };
-  }
-  async function renderReward() {
-    const draw = () => {
-      const list = rewardSchools();
-      const fas = S.user.peran === 'fasilitator' || isKepsek();
-      const sub = fas ? 'Rekap bintang peserta di sekolah ' + (isKepsek() ? 'Anda' : 'binaan Anda') + '. Bintang diisi di langkah Reward pada setiap laporan pendampingan.'
-        : 'Rekap bintang peserta setiap sekolah. Bintang diisi fasilitator di langkah Reward pada setiap laporan pendampingan.';
-      if (!list.length) { app.innerHTML = pageHead('Total Reward', sub) + emptyState('star', fas ? 'Anda belum ditugaskan ke sekolah' : 'Belum ada sekolah binaan', fas ? 'Hubungi admin program.' : ''); return; }
-      if (!S.rwSk || !list.some(s => s.id === S.rwSk)) S.rwSk = list[0].id;
-      const sums = list.map(s => { const m = rewardMatrix(s); return { s, m, top: m.rows.find(r => r.total > 0) }; });
-      const cur = sums.find(x => x.s.id === S.rwSk);
-      const m = cur.m;
-      const penerima = m.rows.filter(r => r.total > 0).length;
-      const ranks = []; m.rows.forEach((r, i) => { ranks[i] = i && r.total === m.rows[i - 1].total ? ranks[i - 1] : i + 1; });
-      let h = pageHead('Total Reward', sub);
-      h += `<div class="stats" style="margin-bottom:18px">
-          ${list.length > 1 ? `<div class="stat gold"><b>${sums.reduce((a, x) => a + x.m.total, 0)}</b><span>total bintang · ${list.length} sekolah</span></div>`
-            : `<div class="stat gold"><b>${window.SILABUS.filter(p => Object.values(rewardOf(cur.s.id, p.no)).some(v => Number(v) > 0)).length}</b><span>pendampingan sudah ada bintang</span></div>`}
-          <div class="stat"><b>${m.total}</b><span>bintang ${esc(cur.s.nama)}</span></div>
-          <div class="stat ok"><b>${penerima}</b><span>peserta sudah mendapat bintang</span></div>
-          <div class="stat"><b>${cur.top ? cur.top.total : '–'}</b><span>${cur.top ? 'tertinggi: ' + esc(cur.top.p.nama.split(',')[0]) : 'belum ada bintang'}</span></div></div>`;
-      if (list.length > 1) h += `<div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table class="tb"><thead><tr><th>Sekolah</th><th style="width:120px">Total bintang</th><th>Peserta teratas</th><th style="width:40px"></th></tr></thead><tbody>
-          ${sums.map(x => `<tr class="clickrow${x.s.id === S.rwSk ? ' on' : ''}" data-act="rw-sk" data-sid="${x.s.id}"><td><b>${esc(x.s.nama)}</b><div class="tiny muted">${esc(fasilNama(x.s) || '-')}</div></td>
-            <td><span class="pill gold">${ic('star', 'st')} ${x.m.total}</span></td><td class="small">${x.top ? esc(x.top.p.nama) + ' · <b>' + x.top.total + '</b>' : '<span class="muted">—</span>'}</td><td>${ic('arrowR')}</td></tr>`).join('')}
-          </tbody></table></div></div>`;
-      h += `<div class="sec"><h2>Per pendampingan · ${esc(cur.s.nama)}</h2></div>
-        ${list.length > 1 ? `<div style="max-width:420px;margin-bottom:12px"><select id="rwSk">${list.map(s => `<option value="${s.id}"${s.id === S.rwSk ? ' selected' : ''}>${esc(s.nama)}</option>`).join('')}</select></div>` : ''}`;
-      if (!m.rows.length) h += emptyState('users', 'Belum ada data peserta', 'Data guru dan kepala sekolah dilengkapi di menu Data Sekolah.');
-      else h += `<div class="matrix-wrap"><table class="matrix rwm"><thead><tr class="fase"><th class="sk"></th><th colspan="7" class="f1">FASE 1</th><th colspan="9" class="f2">FASE 2</th><th colspan="6" class="f3">FASE 3</th><th class="tot"></th></tr>
-          <tr><th class="sk">Peringkat · Peserta</th>${window.SILABUS.map(p => `<th title="${esc(p.judul)}">P${p.no}</th>`).join('')}<th class="tot">Total</th></tr></thead><tbody>
-          ${m.rows.map((r, i) => `<tr><td class="sk"><div class="row" style="flex-wrap:nowrap;gap:10px"><span class="rk${r.total && ranks[i] <= 3 ? ' r' + ranks[i] : ''}">${r.total ? ranks[i] : '–'}</span><div style="min-width:0"><b>${esc(r.p.nama)}</b><div class="tiny muted">${esc(R.jabatanLabel(r.p) || '-')} · hadir ${r.ikut} kali</div></div></div></td>
-            ${r.cells.map((v, j) => `<td class="${v === undefined ? 'na' : v > 0 ? 'has' : 'zero'}" title="P${j + 1}${v === undefined ? ': tidak hadir / belum diisi' : ': ' + v + ' bintang'}">${v === undefined ? '·' : v}</td>`).join('')}
-            <td class="tot"><b>${r.total}</b></td></tr>`).join('')}
-          <tr class="sum"><td class="sk"><b>Jumlah per pendampingan</b></td>${m.colSum.map(v => `<td>${v || '·'}</td>`).join('')}<td class="tot"><b>${m.total}</b></td></tr>
-          </tbody></table></div>
-          <div class="legend" style="margin:10px 2px 0"><span><i style="background:#fbf3e0"></i>Mendapat bintang</span><span><i style="background:#fff;border:1px solid #d3d9e4"></i>0 bintang</span><span><i style="background:#f2f4f8"></i>· tidak hadir / belum diisi</span></div>`;
-      app.innerHTML = h;
-    };
-    draw();
-    if (await refreshRekap(true)) { if (location.hash === '#/reward') draw(); }
-  }
-
-  /* =========================================================
    * KELOLA PENGGUNA (admin)
    * ========================================================= */
   const skOfUser = u => S.sekolah.filter(s => inFasil(s, u.username)).map(s => s.nama);
@@ -2456,7 +2401,6 @@
         R.hadirList(rep, s).forEach(p => { if (R.rewardHadir(rep)[p.id] === undefined) rep.reward[p.id] = 0; });
         touch(); rerenderStep(); break;
       }
-      case 'rw-sk': S.rwSk = b.dataset.sid; renderReward(); break;
       case 'sahkan': {
         const sebagai = isKepsek() ? 'Kepala Sekolah' : 'Fasilitator';
         if (!confirm(`Sahkan laporan ${s.nama} P${rep.no} sebagai ${sebagai}?\n\nDengan mengesahkan, Anda menyatakan sudah memeriksa isi laporan ini. Kode QR atas nama Anda akan tercetak di PDF.`)) return;
@@ -2656,7 +2600,6 @@
   app.addEventListener('change', async e => {
     const t = e.target, rep = S.cur;
     if (t.id === 'bulkNo' || t.id === 'bulkSk') return updateBulkInfo();
-    if (t.id === 'rwSk') { S.rwSk = t.value; return renderReward(); }
     if (t.dataset.fs) {
       const sk = school(t.dataset.sid); if (!canEdit(sk)) return;
       let f = fasilOf(sk).slice();

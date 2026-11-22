@@ -13,15 +13,15 @@
  *   3. Deploy > New deployment > Web app (Execute as: Me, Who has access: Anyone)
  */
 
-var APP_VERSION = '3.3.0';
-var SCHEMA = '2.7';
+var APP_VERSION = '3.4.0';
+var SCHEMA = '2.8';
 var SESSION_DAYS = 30;
 var MAX_FAIL = 5;          // salah sandi berturut-turut
 var LOCK_SECONDS = 600;    // lama kunci setelah salah sandi (detik)
 var HASH_ROUNDS = 120;
 var ROLES = ['admin', 'fasilitator', 'pemantau', 'kepsek', 'guru'];
 /* Akun guru (satu akun dipakai bersama per sekolah) hanya untuk masuk portal CERMAT. */
-var GURU_ACTIONS = ['bootstrap', 'me', 'logout', 'tesList', 'materiList', 'materiPdf', 'bintangSekolah'];
+var GURU_ACTIONS = ['bootstrap', 'me', 'logout', 'tesList', 'materiList', 'materiPdf', 'bintangSekolah', 'progresSekolah'];
 /* Pendampingan yang memakai pretes & postes (satu Google Form per pendampingan). */
 var TES_NO = [1, 2, 3, 4, 5, 6, 7];
 var REF_NO = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22];   // refleksi: satu form per pendampingan
@@ -36,7 +36,7 @@ var SHEETS = {
   Peserta: ['id', 'sekolahId', 'nama', 'jabatan', 'kelas', 'alias', 'gabungan'],   // alias: ejaan nama di form; gabungan: id peserta ganda yang sudah digabung ke baris ini
   Program: ['kunci', 'nilai'],
   Rekap: ['key', 'sekolahId', 'sekolah', 'no', 'judul', 'status', 'tanggal', 'rataPre', 'rataPost',
-    'fileId', 'folderId', 'pdfId', 'pdfAt', 'updatedAt', 'updatedBy', 'version', 'reward'],
+    'fileId', 'folderId', 'pdfId', 'pdfAt', 'updatedAt', 'updatedBy', 'version', 'reward', 'ringkas'],   // ringkas: nilai per peserta + capaian (kartu Progres)
   Berkas: ['fileId', 'key', 'jenis', 'dibuat'],
   Sesi: ['tokenHash', 'username', 'expires'],
   Log: ['waktu', 'username', 'aksi', 'detail'],
@@ -164,6 +164,7 @@ var ACTIONS = {
   materiPeta: { role: 'admin', fn: materiPeta_ },
   materiPdf: { fn: materiPdf_ },
   bintangSekolah: { fn: bintangSekolah_ },
+  progresSekolah: { fn: progresSekolah_ },
 
   listUsers: { role: 'admin', fn: listUsers_ },
   saveUser: { role: 'admin', fn: saveUser_ },
@@ -998,14 +999,9 @@ function bintangSekolah_(req, user) {
   var sk = sekolahById_(sid);
   var sendiri = user.peran === 'guru' || user.peran === 'kepsek';   // guru & kepsek: hanya sekolahnya sendiri
   if (!sendiri && !seesSekolah_(user, sk.id)) throw err_('Sekolah ini tidak tersedia untuk akun Anda.', 'FORBIDDEN');
-  var sah = {};
-  rows_('Pengesahan').forEach(function (r) { if (r.aktif === 'ya' && String(r.key).split('_')[0] === sk.id) (sah[r.key] = sah[r.key] || []).push(r); });
-  var fasil = fasilList_(sk).map(function (u) { return u.toLowerCase(); });
+  var sahkah = sahCek_(sk);
   var lap = rows_('Rekap').filter(function (r) { return r.sekolahId === sk.id && r.fileId; }).map(function (r) {
-    var list = sah[r.key] || [];
-    var allFasil = fasil.length > 0 && fasil.every(function (u) { return list.some(function (x) { return x.peran === 'fasil' && String(x.username).toLowerCase() === u; }); });
-    var ks = list.some(function (x) { return x.peran === 'ks'; });
-    return { no: Number(r.no), sah: r.status === 'lengkap' && allFasil && ks, reward: parseReward_(r.reward) };
+    return { no: Number(r.no), sah: sahkah(r), reward: parseReward_(r.reward) };
   }).filter(function (l) { return Object.keys(l.reward).length; }).sort(function (a, b) { return a.no - b.no; });
   var peserta = rows_('Peserta').filter(function (p) { return p.sekolahId === sk.id; });
   // nama ganda yang sudah digabung: bintangnya ikut nama yang dipertahankan
@@ -1023,6 +1019,93 @@ function bintangSekolah_(req, user) {
     return { nama: p.nama, jabatan: p.jabatan === 'Guru Kelas' && p.kelas ? 'Guru Kelas ' + p.kelas : String(p.jabatan || ''), per: per, total: total };
   }).filter(function (o) { return Object.keys(o.per).length; });
   return { sekolah: sk.nama, pendampingan: lap.map(function (l) { return { no: l.no, sah: l.sah }; }), orang: orang };
+}
+
+/* Laporan sah = lengkap + disahkan semua fasilitator sekolah + kepala sekolah. */
+function sahCek_(sk) {
+  var sah = {};
+  rows_('Pengesahan').forEach(function (r) { if (r.aktif === 'ya' && String(r.key).split('_')[0] === sk.id) (sah[r.key] = sah[r.key] || []).push(r); });
+  var fasil = fasilList_(sk).map(function (u) { return u.toLowerCase(); });
+  return function (r) {
+    var list = sah[r.key] || [];
+    var allFasil = fasil.length > 0 && fasil.every(function (u) { return list.some(function (x) { return x.peran === 'fasil' && String(x.username).toLowerCase() === u; }); });
+    return r.status === 'lengkap' && allFasil && list.some(function (x) { return x.peran === 'ks'; });
+  };
+}
+
+/* Ringkasan satu laporan untuk kartu Progres: hadir, nilai pretes/postes per nama, capaian indikator. */
+function ringkas_(rep) {
+  var tes = {}, urut = [];
+  ((rep && rep.tes && Array.isArray(rep.tes.rows)) ? rep.tes.rows : []).forEach(function (r) {
+    var nama = String(r.nama || '').trim();
+    var sk = Number(r.skor);
+    if (!nama || !isFinite(sk) || (r.jenis !== 'pre' && r.jenis !== 'post')) return;
+    var k = nama.toLowerCase().replace(/\s+/g, ' ');
+    if (!tes[k]) { tes[k] = { nama: nama, pre: null, post: null }; urut.push(k); }
+    tes[k][r.jenis] = sk;
+  });
+  var cap = {}, auto = [];
+  var c0 = rep && rep.capaian && typeof rep.capaian === 'object' ? rep.capaian : {};
+  Object.keys(c0).forEach(function (id) { if (c0[id]) cap[id] = String(c0[id]); });
+  var a0 = rep && rep.capaianAuto && typeof rep.capaianAuto === 'object' ? rep.capaianAuto : {};
+  Object.keys(a0).forEach(function (id) { if (a0[id]) auto.push(id); });
+  return { v: 1, hadir: (Array.isArray(rep && rep.hadir) ? rep.hadir : []).map(String),
+    tes: urut.map(function (k) { return tes[k]; }), cap: cap, auto: auto,
+    ref: rep && rep.refleksi ? Number(rep.refleksi.n) || 0 : 0 };
+}
+
+/* Kartu "Progres Pendampingan" (semua peran, hanya lihat).
+ * Tanpa sekolahId (admin/pemantau/fasil): daftar sekolah untuk dipilih.
+ * Dengan sekolah: per laporan -> status, sah, rata-rata, hadir, nilai per peserta, capaian, bintang.
+ * Laporan lama yang belum punya ringkasan dibaca sekali dari file-nya lalu disimpan. */
+function progresSekolah_(req, user) {
+  var sendiri = user.peran === 'guru' || user.peran === 'kepsek';
+  if (!sendiri && !req.sekolahId) {
+    var me = String(user.username || '').toLowerCase();
+    var jml = {};
+    rows_('Rekap').forEach(function (r) { if (r.fileId) jml[r.sekolahId] = (jml[r.sekolahId] || 0) + 1; });
+    return { pilih: rows_('Sekolah').filter(function (s) { return seesSekolah_(user, s.id); }).map(function (s) {
+      return { id: s.id, nama: s.nama, urutan: Number(s.urutan) || 0, laporan: jml[s.id] || 0,
+        saya: fasilList_(s).some(function (u) { return u.toLowerCase() === me; }) };
+    }).sort(function (a, b) { return (b.saya - a.saya) || (a.urutan - b.urutan) || a.nama.localeCompare(b.nama); }) };
+  }
+  var sk = sekolahById_(sendiri ? String(user.sekolahId || '') : String(req.sekolahId || ''));
+  if (!sendiri && !seesSekolah_(user, sk.id)) throw err_('Sekolah ini tidak tersedia untuk akun Anda.', 'FORBIDDEN');
+  var sahkah = sahCek_(sk);
+  var peserta = rows_('Peserta').filter(function (p) { return p.sekolahId === sk.id; });
+  var ke = {}, namaKe = {};
+  var kunci = function (t) { return String(t || '').trim().toLowerCase().replace(/\s+/g, ' '); };
+  peserta.forEach(function (p) {
+    ke[p.id] = p.id;
+    String(p.gabungan || '').split('|').filter(String).forEach(function (g) { ke[g] = p.id; });
+    namaKe[kunci(p.nama)] = p.id;
+    String(p.alias || '').split('|').filter(String).forEach(function (a) { if (!namaKe[kunci(a)]) namaKe[kunci(a)] = p.id; });
+  });
+  var lap = rows_('Rekap').filter(function (r) { return r.sekolahId === sk.id && r.fileId; });
+  lap.forEach(function (r) {
+    if (r.ringkas) return;
+    try {
+      var rep = JSON.parse(DriveApp.getFileById(r.fileId).getBlob().getDataAsString('UTF-8'));
+      r.ringkas = JSON.stringify(ringkas_(rep));
+      update_('Rekap', r._row, { ringkas: r.ringkas });
+    } catch (x) { r.ringkas = ''; }
+  });
+  var laporan = lap.map(function (r) {
+    var g = {};
+    try { g = JSON.parse(r.ringkas || '{}') || {}; } catch (x) { g = {}; }
+    var hadir = {};
+    (g.hadir || []).forEach(function (id) { if (ke[id]) hadir[ke[id]] = 1; });
+    var rw = {}, r0 = parseReward_(r.reward);
+    Object.keys(r0).forEach(function (id) { if (ke[id]) rw[ke[id]] = Math.max(rw[ke[id]] || 0, Number(r0[id]) || 0); });
+    return { no: Number(r.no), judul: r.judul, tanggal: r.tanggal, status: r.status === 'lengkap' ? 'lengkap' : 'draf', sah: sahkah(r),
+      rataPre: r.rataPre === '' ? null : Number(r.rataPre), rataPost: r.rataPost === '' ? null : Number(r.rataPost),
+      ada: !!r.ringkas, hadir: Object.keys(hadir),
+      tes: (g.tes || []).map(function (t) { return { id: namaKe[kunci(t.nama)] || '', nama: t.nama, pre: t.pre, post: t.post }; }),
+      cap: g.cap || {}, auto: g.auto || [], ref: g.ref || 0, reward: rw };
+  }).sort(function (a, b) { return a.no - b.no; });
+  return { sekolah: { id: sk.id, nama: sk.nama }, sendiri: sendiri,
+    peserta: peserta.map(function (p) { return { id: p.id, nama: p.nama, jabatan: p.jabatan === 'Guru Kelas' && p.kelas ? 'Guru Kelas ' + p.kelas : String(p.jabatan || '') }; }),
+    laporan: laporan };
 }
 
 function parseReward_(s) {
@@ -1239,7 +1322,7 @@ function saveReport_(req, user) {
       tanggal: String(meta.tanggal || ''), rataPre: meta.rataPre === null || meta.rataPre === undefined ? '' : String(meta.rataPre),
       rataPost: meta.rataPost === null || meta.rataPost === undefined ? '' : String(meta.rataPost),
       fileId: fileId, updatedAt: String(t), updatedBy: user.nama || user.username, version: String(ver),
-      reward: JSON.stringify(rewardHadir_(rep))
+      reward: JSON.stringify(rewardHadir_(rep)), ringkas: JSON.stringify(ringkas_(rep))
     });
     if (batalkanSah_(rep.key, t)) log_(user.username, 'pengesahan batal', sk.nama + ' P' + k.no + ' (isi laporan diubah)');
     if (!r.fileId) log_(user.username, 'buat laporan', rep.key + ' ' + sk.nama + ' P' + k.no);
