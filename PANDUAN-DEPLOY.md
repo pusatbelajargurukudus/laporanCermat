@@ -1,4 +1,4 @@
-# Panduan Pemasangan LAPORAN CERMAT v3.8
+# Panduan Pemasangan LAPORAN CERMAT v3.8.1
 
 Aplikasi terdiri dari dua bagian:
 
@@ -98,6 +98,10 @@ Pemasangan cukup **sekali**, sekitar 15 menit.
 4. Buka aplikasi dan tekan **Ctrl+Shift+R** sekali.
 
 Data lama tetap aman. Kolom baru di Sheets ditambahkan otomatis.
+
+**Catatan v3.8.1 — tanpa perubahan Apps Script:**
+- Kartu Refleksi peserta pindah ke langkah 3 ("Postes, Refleksi & Capaian"), tepat di atas Capaian indikator. Lampiran tidak lagi memuat refleksi.
+- Capaian indikator yang cocok dengan pernyataan refleksi **dikunci** mengikuti refleksi (tidak bisa diubah fasil). Indikator tanpa pernyataan cocok, atau laporan tanpa refleksi, tetap dipilih fasil.
 
 **Catatan v3.8 (Capaian 5 tingkat; menggabungkan v3.7.1) — tanpa perubahan Apps Script:**
 - Capaian indikator 5 tingkat dari rata-rata skor refleksi (dipetakan ke skala 1–5): ≥ 4,5 Sangat memahami · 3,5–4,4 Memahami · 2,5–3,4 Cukup · 1,5–2,4 Kurang · < 1,5 Belum memahami. Nama status diambil dari keterangan skala di form bila ada.

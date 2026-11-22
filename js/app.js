@@ -878,7 +878,11 @@
   }
 
   /* ---------- Editor ---------- */
-  const STEPS = no => ['Pelaksanaan', R.hasTes(no) ? 'Pretes & Kehadiran' : 'Kehadiran', R.hasTes(no) ? 'Postes & Capaian' : R.isObservasi(no) ? 'Observasi & Capaian' : 'Capaian', 'Evaluasi', 'Reward', 'Lampiran', 'Periksa & Unduh'];
+  // langkah 3 memuat refleksi (dasar capaian otomatis) bila pendampingan itu punya form refleksi
+  const adaRefleksi = no => !!(S.refForm && S.refForm.has(Number(no))) || !!(S.cur && S.cur.no === no && S.cur.refleksi);
+  const STEPS = no => ['Pelaksanaan', R.hasTes(no) ? 'Pretes & Kehadiran' : 'Kehadiran',
+    ((R.hasTes(no) ? 'Postes, ' : R.isObservasi(no) ? 'Observasi, ' : '') + (adaRefleksi(no) ? 'Refleksi & Capaian' : 'Capaian')).replace(/^(Postes|Observasi), Capaian$/, '$1 & Capaian'),
+    'Evaluasi', 'Reward', 'Lampiran', 'Periksa & Unduh'];
   const NSTEP = 7;
   let readOnly = false;
 
@@ -1329,24 +1333,25 @@
           <button class="btn sm danger" data-act="obs-del" data-i="${i}" style="margin-top:8px">${ic('trash')}Hapus guru ini</button></div>`).join('')}
         <button class="btn" data-act="obs-add">${ic('plus')}Tambah guru yang diobservasi</button></div>`;
     }
+    h += refCard(rep, s);   // refleksi tepat di atas capaian: capaian otomatis dihitung dari refleksi
     // refleksi diambil sebelum fitur ini ada: hitung sekarang (disimpan bila boleh mengedit)
     if (rep.refleksi && rep.capaianAuto === undefined) { hitungCapaian(rep); if (!readOnly) touch(); }
     const auto = rep.capaianAuto, NAMA = I.capaianNama(rep.refleksi && rep.refleksi.items), Lbl = x => NAMA[x] || x;
     const lamaRef = rep.refleksi && (rep.refleksi.items || []).some(o => o.jenis === 'GRID' && (o.baris || []).length && o.baris.every(b => /^\d+$/.test(String(b.top || ''))));
     const bawaan = 'Bawaan: ' + Lbl('paham') + '.';
-    const subCap = auto ? `Terisi otomatis dari rata-rata skor refleksi peserta: ≥ 4,5 ${Lbl('sangat')} · 3,5–4,4 ${Lbl('paham')} · 2,5–3,4 ${Lbl('cukup')} · 1,5–2,4 ${Lbl('kurang')} · < 1,5 ${Lbl('belum')} (skala 1–5). Ketuk untuk mengubah.`
-      : lamaRef ? 'Rangkuman refleksi laporan ini dibuat versi lama. Buka langkah Lampiran lalu ketuk <b>Perbarui dari Google Form</b> agar capaian terisi otomatis. ' + bawaan
+    const subCap = auto ? `Mengikuti rata-rata skor refleksi peserta (dikunci): ≥ 4,5 ${Lbl('sangat')} · 3,5–4,4 ${Lbl('paham')} · 2,5–3,4 ${Lbl('cukup')} · 1,5–2,4 ${Lbl('kurang')} · < 1,5 ${Lbl('belum')} (skala 1–5). Indikator tanpa pernyataan refleksi yang cocok dipilih sendiri.`
+      : lamaRef ? 'Rangkuman refleksi laporan ini dibuat versi lama. Ketuk <b>Perbarui dari Google Form</b> di kartu Refleksi peserta di atas agar capaian terisi otomatis. ' + bawaan
       : rep.refleksi ? 'Refleksi tidak berisi pernyataan berskala, jadi capaian dipilih sendiri. ' + bawaan
-      : 'Menentukan kalimat Kondisi Akhir. ' + bawaan + ' Ambil refleksi peserta di langkah Lampiran agar terisi otomatis.';
+      : 'Menentukan kalimat Kondisi Akhir. ' + bawaan + (adaRefleksi(rep.no) ? ' Ambil refleksi peserta di atas agar terisi otomatis.' : '');
     h += `<div class="card"><div class="card-h">${ic('check')}<h2>Capaian indikator</h2></div><p class="small muted" style="margin-top:-6px">${subCap}</p>
       ${R.indikatorList(rep.no).map(i => {
         const v = R.capaianNorm(rep.capaian[i.id]), a = auto && auto[i.id], man = !!rep.capaianManual[i.id];
         let dasar = '';
         if (a) dasar = `Dari refleksi: rata-rata ${String(a.avg).replace('.', ',')}${a.satuSkala ? ' dari ' + a.max : ''} · “${esc(a.dasar[0])}”${a.dasar.length > 1 ? ` dan ${a.dasar.length - 1} pernyataan lain` : ''}`;
-        else if (auto) dasar = 'Tidak ada pernyataan refleksi yang cocok (bawaan: ' + Lbl('paham') + ').';
-        if (man && a && a.v !== v) dasar += `${dasar ? ' · ' : ''}<b>Diubah fasil</b> (otomatis: ${Lbl(a.v)})${readOnly ? '' : ` · <button class="lnkbtn" data-act="cap-auto" data-id="${i.id}">Kembalikan otomatis</button>`}`;
+        else if (auto) dasar = 'Tidak ada pernyataan refleksi yang cocok; pilih sendiri (bawaan: ' + Lbl('paham') + ').';
+        const kunci = readOnly || !!a;
         return `<div class="ind"><div><span class="pill navy">${i.dim}</span> ${esc(i.teks)}${dasar ? `<div class="tiny muted capdasar">${dasar}</div>` : ''}</div>
-        <div class="seg seg5">${I.CAPAIAN.map(x => `<button data-act="cap" data-id="${i.id}" data-v="${x}" class="${v === x ? 'on' : ''}"${readOnly ? ' disabled' : ''}>${esc(Lbl(x))}</button>`).join('')}</div></div>`; }).join('')}</div>`;
+        <div class="seg seg5${a ? ' kunci' : ''}"${a ? ' title="Mengikuti refleksi peserta"' : ''}>${I.CAPAIAN.map(x => `<button data-act="cap" data-id="${i.id}" data-v="${x}" class="${v === x ? 'on' : ''}"${kunci ? ' disabled' : ''}>${esc(Lbl(x))}</button>`).join('')}${a ? `<span class="segkunci">${ic('lock')}</span>` : ''}</div></div>`; }).join('')}</div>`;
     const tf = (k, label, auto) => `<div style="margin-top:12px"><div class="row"><label class="f" style="margin:0">${label}</label><span class="spacer"></span>
       <span class="tiny muted" id="tm-${k}">${rep.teks[k] ? 'diedit manual' : 'otomatis'}</span>
       <button class="btn sm ghost" data-act="teks-reset" data-k="${k}">Kembalikan otomatis</button></div>
@@ -1448,7 +1453,7 @@
     if (!lkKeys.includes('Lainnya')) lkKeys.push('Lainnya');
     // a & b dibuat otomatis; scan lama (bila pernah diunggah) tetap tampil dan bisa dihapus
     const scanLama = (key, list) => (list || []).length ? `<p class="small muted" style="margin-top:10px">Scan yang pernah diunggah (ikut dicetak; hapus bila tidak perlu):</p>${thumbs(list, key)}` : '';
-    return refCard(rep, s) + `<div class="card"><h2>a. Daftar hadir</h2>
+    return `<div class="card"><h2>a. Daftar hadir</h2>
       <p class="small" style="margin:0">${ic('check')} Tabel daftar hadir dibuat otomatis dari langkah Kehadiran${R.hasTes(rep.no) ? ', lengkap dengan nilai pretes/postes' : ''}. Tidak perlu mengunggah foto.</p>${scanLama('hadirScan', L.hadirScan)}</div>
       <div class="card"><h2>b. Jurnal kegiatan</h2>
       <p class="small" style="margin:0">${ic('check')} Jurnal kegiatan fasilitator dibuat otomatis (sesi, kegiatan, catatan dari langkah 3, kolom paraf, tanda tangan penanggung jawab). Tidak perlu mengunggah scan.</p>${scanLama('jurnalScan', L.jurnalScan)}</div>
@@ -1534,9 +1539,10 @@
     const ids = R.indikatorList(rep.no).map(i => i.id);
     rep.capaianAuto = rep.refleksi && rep.refleksi.items ? I.refCapaian(rep.refleksi.items, R.indikatorList(rep.no)) : null;
     ids.forEach(id => {
-      if (rep.capaianManual[id]) return;
       const a = rep.capaianAuto && rep.capaianAuto[id];
-      if (a) rep.capaian[id] = a.v; else delete rep.capaian[id];
+      // indikator yang cocok dengan pernyataan refleksi dikunci mengikuti refleksi
+      if (a) { rep.capaian[id] = a.v; delete rep.capaianManual[id]; return; }
+      if (!rep.capaianManual[id]) delete rep.capaian[id];
     });
   }
   function susunKesimpulan(rep) {
@@ -2516,7 +2522,8 @@
       case 'akt-add': { const k = editKeg(); k[b.dataset.si].aktivitas.push({ teks: '', aktif: true }); touch(); rerenderStep();
         const ins = document.querySelectorAll(`[data-akt^="${b.dataset.si}|"]`); if (ins.length) ins[ins.length - 1].focus(); break; }
       case 'keg-reset': if (confirm('Kembalikan langkah kegiatan sesuai silabus? Perubahan teks & catatan sesi akan hilang.')) { rep.kegiatan = null; touch(); rerenderStep(); } break;
-      case 'cap': rep.capaian[b.dataset.id] = b.dataset.v; rep.capaianManual[b.dataset.id] = true; touch(); rerenderStep(true); break;
+      case 'cap': if (rep.capaianAuto && rep.capaianAuto[b.dataset.id]) break;   // mengikuti refleksi
+        rep.capaian[b.dataset.id] = b.dataset.v; rep.capaianManual[b.dataset.id] = true; touch(); rerenderStep(true); break;
       case 'cap-auto': delete rep.capaianManual[b.dataset.id]; hitungCapaian(rep); touch(); rerenderStep(true); break;
       case 'obs-add': rep.observasi = (rep.observasi || []).concat({ guru: '', kelas: '', kekuatan: '', perbaikan: '', tindakLanjut: '' }); touch(); rerenderStep(); break;
       case 'obs-del': rep.observasi.splice(+b.dataset.i, 1); touch(); rerenderStep(); break;
