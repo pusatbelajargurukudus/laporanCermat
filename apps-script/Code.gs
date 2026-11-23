@@ -13,7 +13,7 @@
  *   3. Deploy > New deployment > Web app (Execute as: Me, Who has access: Anyone)
  */
 
-var APP_VERSION = '3.6.0';
+var APP_VERSION = '3.7.0';
 var SCHEMA = '2.9';
 var SESSION_DAYS = 30;
 var MAX_FAIL = 5;          // salah sandi berturut-turut
@@ -557,8 +557,9 @@ function tesPoints_(it) {
  * - Nama: sama persis / ejaan yang sudah diingat / sangat mirip -> peserta itu (ejaan diingat);
  *   lainnya -> peserta baru bertanda "periksa". Nama baru yang mirip satu sama lain = satu orang.
  * - Tidak ditimpa: centang hadir yang dicabut fasil (hadirLepas), kesimpulan refleksi yang diedit (kesEdit),
- *   arti skor ketikan fasil, dan capaian pilihan fasil untuk indikator yang tidak cocok dengan refleksi.
- *   Indikator yang cocok dengan refleksi selalu mengikuti refleksi.
+ *   arti skor ketikan fasil, dan capaian pilihan fasil untuk indikator yang tidak punya sumber otomatis.
+ * - Capaian (nilaiCapaian_): P1–P7 pengetahuan dari rata-rata postes, keterampilan dari refleksi;
+ *   P8–P22 semua dari refleksi. Indikator yang punya sumber otomatis selalu mengikutinya.
  * Pengolahnya sama dengan di aplikasi: salinan js/importer.js di bagian bawah berkas ini.
  * ============================================================= */
 var NILAI_OLEH = 'Otomatis (Google Form)';
@@ -824,20 +825,12 @@ function nilaiSekolah_(sk, no, ref, d, an, paksa) {
       rep.refleksi = { judul: d.judul || '', importedAt: (lama && lama.importedAt) || t, n: ikut.length,
         nama: ikut.map(function (r) { return r.nama; }).sort(function (a, b) { return a.localeCompare(b, 'id'); }),
         items: items, arti: (lama && lama.arti) || '', kesAuto: auto, kesimpulan: lama && lama.kesEdit ? lama.kesimpulan : auto, kesEdit: !!(lama && lama.kesEdit), otomatis: true, ulang: ulang };
-      // capaian: indikator yang cocok dengan refleksi dikunci; lainnya pilihan fasil tetap
-      rep.capaian = rep.capaian || {};
-      if (!rep.capaianManual) { rep.capaianManual = {}; Object.keys(rep.capaian).forEach(function (k) { rep.capaianManual[k] = true; }); }
-      var ind = indikatorList_(no);
-      rep.capaianAuto = I.refCapaian(items, ind) || null;
-      ind.forEach(function (i) {
-        var a = rep.capaianAuto && rep.capaianAuto[i.id];
-        if (a) { rep.capaian[i.id] = a.v; delete rep.capaianManual[i.id]; return; }
-        if (!rep.capaianManual[i.id]) delete rep.capaian[i.id];
-      });
+      nilaiCapaian_(rep, no);   // keterampilan (dan pengetahuan P8–P22) dari refleksi
     } else {
       var byKey = {}, ordK = [];
       rows.forEach(function (r) { var k = r.jenis + '|' + I.normName(r.nama); if (byKey[k]) { ulang++; return; } ordK.push(k); byKey[k] = r; });   // kiriman pertama
       rep.tes = { fileName: 'Google Form: ' + (d.judul || 'P' + no), importedAt: (rep.tes && rep.tes.importedAt) || t, rows: ordK.map(function (k) { return byKey[k]; }), otomatis: true, ulang: ulang };
+      nilaiCapaian_(rep, no);   // pengetahuan dari rata-rata postes
     }
     var adaUbahP = baru.length || peserta.some(function (p) { return p._ubah; });
     if (nilaiSidik_(rep) === sebelum && !adaUbahP) {
@@ -869,6 +862,60 @@ function nilaiSekolah_(sk, no, ref, d, an, paksa) {
     out.ubah = true; out.baru = baru.length;
   });
   return out;
+}
+
+/* Capaian indikator otomatis (aturan versi 2, sama dengan hitungCapaian di js/app.js):
+ * P1–P7: Pengetahuan dari rata-rata postes, Keterampilan dari refleksi. P8–P22: semua dari refleksi.
+ * Indikator otomatis dikunci; lainnya tetap pilihan fasil (capaianManual). */
+var CAPAIAN_VER = 2;
+function nilaiCapaian_(rep, no) {
+  var ind = indikatorList_(no);
+  rep.capaian = rep.capaian || {};
+  if (!rep.capaianManual) { rep.capaianManual = {}; Object.keys(rep.capaian).forEach(function (k) { rep.capaianManual[k] = true; }); }
+  var rf = rep.refleksi && typeof rep.refleksi === 'object' ? rep.refleksi : null;
+  rep.capaianAuto = Importer_.capaianOtomatis(ind, rf ? rf.items : null, TES_NO.indexOf(Number(no)) >= 0 ? ((rep.tes && rep.tes.rows) || []) : null);
+  rep.capaianVer = CAPAIAN_VER;
+  ind.forEach(function (i) {
+    var a = rep.capaianAuto && rep.capaianAuto[i.id];
+    if (a) { rep.capaian[i.id] = a.v; delete rep.capaianManual[i.id]; return; }
+    if (!rep.capaianManual[i.id]) delete rep.capaian[i.id];
+  });
+}
+
+/* Jalankan SEKALI di editor setelah memasang server 3.7.0: laporan P1–P7 yang BELUM disahkan dihitung ulang
+ * (capaian pengetahuan dari rata-rata postes, keterampilan tetap dari refleksi). Laporan yang sudah disahkan tidak diubah.
+ * Bila berhenti karena batas waktu, jalankan lagi; laporan yang sudah diperbarui dilewati. */
+function ulangCapaian() {
+  migrate_();
+  var mulai = Date.now(), h = { diperbarui: 0, sudahDisahkan: 0, tidakBerubah: 0, gagal: 0, belumSelesai: false };
+  var sah = sahKeys_();
+  var daftar = rows_('Rekap').filter(function (r) { return r.fileId && TES_NO.indexOf(Number(r.no)) >= 0; });
+  for (var k = 0; k < daftar.length; k++) {
+    if (Date.now() - mulai > 280000) { h.belumSelesai = true; break; }
+    var key = daftar[k].key;
+    if (sah[key]) { h.sudahDisahkan++; continue; }
+    try {
+      lock_(function () {
+        var r = rekapRow_(key);
+        if (!r || !r.fileId || sahAktif_(key).length) { h.sudahDisahkan++; return; }
+        var f = DriveApp.getFileById(r.fileId);
+        var rep = JSON.parse(f.getBlob().getDataAsString('UTF-8'));
+        if (rep.capaianVer === CAPAIAN_VER) { h.tidakBerubah++; return; }
+        var sebelum = nilaiSidik_(rep);
+        nilaiCapaian_(rep, Number(r.no));
+        if (nilaiSidik_(rep) === sebelum) { h.tidakBerubah++; return; }
+        var t = Date.now();
+        rep.updatedAt = t;
+        f.setContent(JSON.stringify(rep));
+        // dicatat sebagai pembaruan otomatis supaya isian fasil yang belum terkirim digabung tanpa bentrok
+        update_('Rekap', r._row, { updatedAt: String(t), updatedBy: NILAI_OLEH, version: String((Number(r.version) || 0) + 1), ringkas: JSON.stringify(ringkas_(rep)) });
+        h.diperbarui++;
+      });
+    } catch (e) { h.gagal++; Logger.log(key + ': ' + e.message); }
+  }
+  log_('server', 'ulang capaian', JSON.stringify(h));
+  Logger.log('Capaian dihitung ulang: ' + JSON.stringify(h) + (h.belumSelesai ? ' — waktu habis, jalankan ulangCapaian sekali lagi.' : ''));
+  return h;
 }
 
 /* Bagian laporan yang diisi otomatis, untuk tahu ada perubahan atau tidak. */
@@ -1423,9 +1470,10 @@ function ringkas_(rep) {
   var c0 = rep && rep.capaian && typeof rep.capaian === 'object' ? rep.capaian : {};
   Object.keys(c0).forEach(function (id) { if (c0[id]) cap[id] = String(c0[id]); });
   var a0 = rep && rep.capaianAuto && typeof rep.capaianAuto === 'object' ? rep.capaianAuto : {};
-  Object.keys(a0).forEach(function (id) { if (a0[id]) auto.push(id); });
+  var autoPost = [];
+  Object.keys(a0).forEach(function (id) { if (a0[id]) { auto.push(id); if (a0[id].sumber === 'postes') autoPost.push(id); } });
   return { v: 2, hadir: (Array.isArray(rep && rep.hadir) ? rep.hadir : []).map(String),
-    tes: urut.map(function (k) { return tes[k]; }), cap: cap, auto: auto,
+    tes: urut.map(function (k) { return tes[k]; }), cap: cap, auto: auto, autoPost: autoPost,
     ref: rep && rep.refleksi ? Number(rep.refleksi.n) || 0 : 0,
     refNama: rep && rep.refleksi && Array.isArray(rep.refleksi.nama) ? rep.refleksi.nama.map(String) : [] };
 }
@@ -1502,7 +1550,7 @@ function progresSekolah_(req, user) {
       rataPre: r.rataPre === '' ? null : Number(r.rataPre), rataPost: r.rataPost === '' ? null : Number(r.rataPost),
       ada: !!r.ringkas, hadir: Object.keys(hadir),
       tes: (g.tes || []).map(function (t) { return { id: namaKe[kunci(t.nama)] || '', nama: t.nama, pre: t.pre, post: t.post }; }),
-      cap: g.cap || {}, auto: g.auto || [], ref: g.ref || 0, reward: rw,
+      cap: g.cap || {}, auto: g.auto || [], autoPost: g.autoPost || [], ref: g.ref || 0, reward: rw,
       refNama: (g.refNama || []).map(function (nm) { return { id: namaKe[kunci(nm)] || '', nama: nm }; }) };
   }).sort(function (a, b) { return a.no - b.no; });
   // yang sedang dibuka hari ini untuk sekolah ini
@@ -2734,10 +2782,46 @@ var Importer_ = (function () { var window = {};
       const nA = pakai.reduce((a, x) => a + x.u.n, 0);
       const x5 = pakai.reduce((a, x) => a + (1 + 4 * (x.u.avg - x.u.min) / Math.max(1, x.u.max - x.u.min)) * x.u.n, 0) / Math.max(1, nA);
       const avg = pakai.reduce((a, x) => a + x.u.avg * x.u.n, 0) / Math.max(1, nA);
-      out[i.id] = { v: U.capaianDari(x5), avg: Math.round(avg * 10) / 10, max: pakai[0].u.max, satuSkala: pakai.every(x => x.u.max === pakai[0].u.max && x.u.min === pakai[0].u.min),
+      out[i.id] = { v: U.capaianDari(x5), avg: Math.round(avg * 10) / 10, min: pakai[0].u.min, max: pakai[0].u.max, satuSkala: pakai.every(x => x.u.max === pakai[0].u.max && x.u.min === pakai[0].u.min),
         dasar: pakai.map(x => bersihJudul(x.u.teks)) };
     });
     return out;
+  };
+
+  /* =========================================================
+   * CAPAIAN DARI POSTES (pendampingan bertes, P1–P7): rata-rata nilai postes dikelompokkan ke 5 tingkat.
+   * Skala nilai dikenali dari data: semua nilai <= 10 -> skala 10 (mis. nilai 1–10), selain itu skala 100.
+   * BATAS_POSTES = persen dari nilai maksimum (skala 10: 9 · 7 · 5 · 3; skala 100: 90 · 70 · 50 · 30),
+   * perbandingannya sama dengan batas refleksi (4,5 · 3,5 · 2,5 · 1,5 dari 5).
+   * ========================================================= */
+  U.BATAS_POSTES = { sangat: 90, paham: 70, cukup: 50, kurang: 30 };
+  U.batasPostes = skala => { const b = U.BATAS_POSTES, k = (skala || 100) / 100, r = x => Math.round(x * k * 100) / 100; return { sangat: r(b.sangat), paham: r(b.paham), cukup: r(b.cukup), kurang: r(b.kurang) }; };
+  U.capaianPostes = (x, skala) => { const b = U.batasPostes(skala); return x >= b.sangat ? 'sangat' : x >= b.paham ? 'paham' : x >= b.cukup ? 'cukup' : x >= b.kurang ? 'kurang' : 'belum'; };
+  /* Rata-rata postes dari baris nilai laporan (dibulatkan 2 desimal, sama dengan yang tercetak) + skala nilainya */
+  U.rataPostes = function (rows) {
+    const angka = r => r && r.skor !== null && r.skor !== '' && isFinite(Number(r.skor));
+    const semua = (rows || []).filter(r => angka(r) && (r.jenis === 'pre' || r.jenis === 'post')).map(r => Number(r.skor));
+    const xs = (rows || []).filter(r => angka(r) && r.jenis === 'post').map(r => Number(r.skor));
+    if (!xs.length) return null;
+    return { avg: Math.round(xs.reduce((a, b) => a + b, 0) / xs.length * 100) / 100, n: xs.length, skala: Math.max.apply(null, semua) <= 10 ? 10 : 100 };
+  };
+  /* Capaian otomatis satu laporan -> { idIndikator: { v, avg, min, max, sumber: 'postes'|'refleksi', ... } } atau null.
+   * tesRows: baris nilai (array) bila pendampingan memakai pretes/postes, null bila tidak.
+   * - Pendampingan bertes: Pengetahuan dari rata-rata postes (belum ada postes -> dipilih fasilitator).
+   * - Keterampilan, dan Pengetahuan pada pendampingan tanpa tes: dari refleksi (pernyataan berskala yang paling mirip). */
+  U.capaianOtomatis = function (indikator, refItems, tesRows) {
+    const bertes = Array.isArray(tesRows);
+    const post = bertes ? U.rataPostes(tesRows) : null;
+    const ref = refItems && refItems.length ? U.refCapaian(refItems, indikator) : null;
+    const out = {};
+    indikator.forEach(i => {
+      if (bertes && i.dim === 'Pengetahuan') {
+        if (post) out[i.id] = { v: U.capaianPostes(post.avg, post.skala), avg: post.avg, min: 0, max: post.skala, n: post.n, satuSkala: true, sumber: 'postes', dasar: ['Rata-rata nilai postes'] };
+        return;
+      }
+      if (ref && ref[i.id]) out[i.id] = Object.assign({}, ref[i.id], { sumber: 'refleksi' });
+    });
+    return Object.keys(out).length ? out : null;
   };
 
   (typeof window !== 'undefined' ? window : this).Importer = U;

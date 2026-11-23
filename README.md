@@ -1,4 +1,4 @@
-# LAPORAN CERMAT v3.14
+# LAPORAN CERMAT v3.15
 
 Aplikasi web untuk menyusun **laporan 22 pendampingan Program CERMAT** (Cerdas Numerasi dan Matematika Terapan), dipakai bersama oleh semua fasilitator.
 
@@ -10,6 +10,7 @@ Aplikasi web untuk menyusun **laporan 22 pendampingan Program CERMAT** (Cerdas N
 - **Bisa diinstal (PWA).** Android/Chrome: menu ⋮ → *Instal aplikasi*. iPhone/Safari: *Bagikan → Tambahkan ke Layar Utama*. Laptop/Chrome: ikon instal di kolom alamat.
 - **Data sekolah dibagi.** Admin mendaftarkan sekolah dan memasangkan Fasilitator 1 & 2; fasilitator melengkapi nama & NIP kepala sekolah serta data guru.
 - **Nilai & refleksi otomatis.** Jawaban pretes, postes, dan refleksi di Google Form masuk sendiri ke laporan setiap sekolah (atau langsung lewat tombol *Perbarui data*); setiap jenis hanya dihitung sekali (kiriman pertama).
+- **Capaian indikator otomatis.** P1–P7: capaian *pengetahuan* dari rata-rata nilai postes; untuk nilai 1–10: 9–10 sangat memahami · 7–<9 memahami · 5–<7 cukup · 3–<5 kurang · <3 belum memahami (nilai 0–100 memakai 90 · 70 · 50 · 30), capaian *keterampilan* dari refleksi peserta. P8–P22: semua dari refleksi. Batasnya diatur di `BATAS_POSTES` (`js/importer.js`).
 - **Reward bintang.** Fasilitator mengisi bintang setiap peserta yang hadir di langkah *Reward*; totalnya terakumulasi dari P1–P22 dan tercetak di PDF. Kosong dihitung 0.
 - **Progres Pendampingan.** Semua akun melihat nilai pretes & postes per peserta, capaian indikator, dan bintang setiap pendampingan, plus rekap peringkat bintang, di kartu *Progres Pendampingan* pada portal (menu *Progres* di aplikasi ini).
 - **Jurnal kegiatan ditandatangani** kepala sekolah dan fasilitator yang hadir.

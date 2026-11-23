@@ -530,10 +530,46 @@
       const nA = pakai.reduce((a, x) => a + x.u.n, 0);
       const x5 = pakai.reduce((a, x) => a + (1 + 4 * (x.u.avg - x.u.min) / Math.max(1, x.u.max - x.u.min)) * x.u.n, 0) / Math.max(1, nA);
       const avg = pakai.reduce((a, x) => a + x.u.avg * x.u.n, 0) / Math.max(1, nA);
-      out[i.id] = { v: U.capaianDari(x5), avg: Math.round(avg * 10) / 10, max: pakai[0].u.max, satuSkala: pakai.every(x => x.u.max === pakai[0].u.max && x.u.min === pakai[0].u.min),
+      out[i.id] = { v: U.capaianDari(x5), avg: Math.round(avg * 10) / 10, min: pakai[0].u.min, max: pakai[0].u.max, satuSkala: pakai.every(x => x.u.max === pakai[0].u.max && x.u.min === pakai[0].u.min),
         dasar: pakai.map(x => bersihJudul(x.u.teks)) };
     });
     return out;
+  };
+
+  /* =========================================================
+   * CAPAIAN DARI POSTES (pendampingan bertes, P1–P7): rata-rata nilai postes dikelompokkan ke 5 tingkat.
+   * Skala nilai dikenali dari data: semua nilai <= 10 -> skala 10 (mis. nilai 1–10), selain itu skala 100.
+   * BATAS_POSTES = persen dari nilai maksimum (skala 10: 9 · 7 · 5 · 3; skala 100: 90 · 70 · 50 · 30),
+   * perbandingannya sama dengan batas refleksi (4,5 · 3,5 · 2,5 · 1,5 dari 5).
+   * ========================================================= */
+  U.BATAS_POSTES = { sangat: 90, paham: 70, cukup: 50, kurang: 30 };
+  U.batasPostes = skala => { const b = U.BATAS_POSTES, k = (skala || 100) / 100, r = x => Math.round(x * k * 100) / 100; return { sangat: r(b.sangat), paham: r(b.paham), cukup: r(b.cukup), kurang: r(b.kurang) }; };
+  U.capaianPostes = (x, skala) => { const b = U.batasPostes(skala); return x >= b.sangat ? 'sangat' : x >= b.paham ? 'paham' : x >= b.cukup ? 'cukup' : x >= b.kurang ? 'kurang' : 'belum'; };
+  /* Rata-rata postes dari baris nilai laporan (dibulatkan 2 desimal, sama dengan yang tercetak) + skala nilainya */
+  U.rataPostes = function (rows) {
+    const angka = r => r && r.skor !== null && r.skor !== '' && isFinite(Number(r.skor));
+    const semua = (rows || []).filter(r => angka(r) && (r.jenis === 'pre' || r.jenis === 'post')).map(r => Number(r.skor));
+    const xs = (rows || []).filter(r => angka(r) && r.jenis === 'post').map(r => Number(r.skor));
+    if (!xs.length) return null;
+    return { avg: Math.round(xs.reduce((a, b) => a + b, 0) / xs.length * 100) / 100, n: xs.length, skala: Math.max.apply(null, semua) <= 10 ? 10 : 100 };
+  };
+  /* Capaian otomatis satu laporan -> { idIndikator: { v, avg, min, max, sumber: 'postes'|'refleksi', ... } } atau null.
+   * tesRows: baris nilai (array) bila pendampingan memakai pretes/postes, null bila tidak.
+   * - Pendampingan bertes: Pengetahuan dari rata-rata postes (belum ada postes -> dipilih fasilitator).
+   * - Keterampilan, dan Pengetahuan pada pendampingan tanpa tes: dari refleksi (pernyataan berskala yang paling mirip). */
+  U.capaianOtomatis = function (indikator, refItems, tesRows) {
+    const bertes = Array.isArray(tesRows);
+    const post = bertes ? U.rataPostes(tesRows) : null;
+    const ref = refItems && refItems.length ? U.refCapaian(refItems, indikator) : null;
+    const out = {};
+    indikator.forEach(i => {
+      if (bertes && i.dim === 'Pengetahuan') {
+        if (post) out[i.id] = { v: U.capaianPostes(post.avg, post.skala), avg: post.avg, min: 0, max: post.skala, n: post.n, satuSkala: true, sumber: 'postes', dasar: ['Rata-rata nilai postes'] };
+        return;
+      }
+      if (ref && ref[i.id]) out[i.id] = Object.assign({}, ref[i.id], { sumber: 'refleksi' });
+    });
+    return Object.keys(out).length ? out : null;
   };
 
   (typeof window !== 'undefined' ? window : this).Importer = U;

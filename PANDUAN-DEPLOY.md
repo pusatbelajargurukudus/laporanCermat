@@ -1,4 +1,4 @@
-# Panduan Pemasangan LAPORAN CERMAT v3.14
+# Panduan Pemasangan LAPORAN CERMAT v3.15
 
 Aplikasi terdiri dari dua bagian:
 
@@ -98,6 +98,16 @@ Pemasangan cukup **sekali**, sekitar 15 menit.
 4. Buka aplikasi dan tekan **Ctrl+Shift+R** sekali.
 
 Data lama tetap aman. Kolom baru di Sheets ditambahkan otomatis.
+
+**Catatan v3.15 (server 3.7.0) — Apps Script BERUBAH, deploy versi baru (tanpa izin baru), lalu jalankan `ulangCapaian` sekali:**
+1. Ganti seluruh isi `Code.gs` → Ctrl+S → **Deploy → Manage deployments** → ✏ → **New version** → Deploy.
+2. Di editor Apps Script, pilih fungsi **`ulangCapaian`** → **Run**. Laporan P1–P7 yang **belum disahkan** dihitung ulang dengan aturan baru; laporan yang sudah disahkan tidak diubah. Log menampilkan jumlah yang diperbarui. Bila tertulis waktu habis, jalankan sekali lagi.
+3. Di GitHub laporanCermat, unggah `js/importer.js`, `js/app.js`, `js/pdf.js`, `index.html`, `sw.js`, `README.md`, `PANDUAN-DEPLOY.md`, `apps-script/Code.gs`. Di GitHub cermat (portal), unggah `assets/app.js`, `index.html`, `sw.js`, `panduan/fasilitator.html`.
+- **Capaian pengetahuan dari postes.** P1–P7: semua indikator pengetahuan mengikuti rata-rata nilai postes sekolah itu. Nilai 1–10: 9–10 Sangat memahami · 7 sampai di bawah 9 Memahami · 5 sampai di bawah 7 Cukup · 3 sampai di bawah 5 Kurang · di bawah 3 Belum memahami. Skala dikenali otomatis: bila ada nilai di atas 10 (mis. skor kuis yang diubah ke 0–100), batasnya 90 · 70 · 50 · 30. Batas (persen dari nilai maksimum) diatur di `BATAS_POSTES` di `js/importer.js` (salinannya di `Code.gs` ikut diperbarui).
+- **Capaian keterampilan tetap dari refleksi.** P8–P22 (tanpa tes) seluruh capaian tetap dari refleksi.
+- **PDF.** P1–P7: bab *Capaian Indikator* berisi *a. Pengetahuan* (paragraf rata-rata postes & aturan pengelompokan, tabel Indikator · Rata-rata postes · Capaian) dan *b. Keterampilan* (penilaian diri dari refleksi, tabel seperti sebelumnya). P8–P22 dan laporan yang disahkan sebelum versi ini tetap memakai susunan lama *Capaian Indikator (Penilaian Diri Peserta)*.
+- **Progres Pendampingan (portal).** Capaian bertanda "dari postes" atau "dari refleksi". Ringkasan Rekap mendapat isian `autoPost` (tanpa kolom baru).
+- Laporan lama yang belum disahkan ikut diperbarui saat dibuka/diubah fasilitator atau saat jawaban form baru masuk; `ulangCapaian` membereskan semuanya sekaligus.
 
 **Catatan v3.14 (server 3.6.0) — hanya Apps Script berubah, deploy versi baru (portal v31 ikut diperbarui):**
 - Progres Pendampingan: perbandingan nilai antar sekolah per pendampingan (P1–P7) di halaman pilih sekolah (pengganti "Lihat hasil"), tanda "Sedang dibuka" pada pendampingan yang berlangsung hari ini, dan tombol **Pengisian** (siapa sudah/belum mengerjakan pretes, postes, refleksi; P khusus kelas: guru kelas itu + kepala sekolah).

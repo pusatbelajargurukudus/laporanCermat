@@ -362,6 +362,8 @@
 
   function touch() {
     const r = S.cur; if (!r) return;
+    // laporan yang dihitung dengan aturan capaian lama ikut diperbarui saat diubah fasil (yang sudah disahkan terkunci, tidak sampai ke sini)
+    if (r.capaianVer !== CAP_VER && perluCapaian(r)) hitungCapaian(r);
     r._rev = (r._rev || 0) + 1; r._dirty = true; r.updatedAt = Date.now();
     S.local.set(r.key, { status: R.status(r, school(r.sekolahId)), dirty: true, reward: R.rewardHadir(r) });
     persistCur(); Sync.schedule(); refreshStepDots();
@@ -963,7 +965,7 @@
     const lepas = new Set(loc.hadirLepas || []);
     loc.hadir = [...new Set((loc.hadir || []).concat((srv.hadir || []).filter(id => !lepas.has(id))))];
     if (srv.otomatis) loc.otomatis = srv.otomatis;
-    if (loc.refleksi) { loc.capaian = loc.capaian || {}; loc.capaianManual = loc.capaianManual || {}; hitungCapaian(loc); }
+    if (perluCapaian(loc) || loc.capaianAuto) hitungCapaian(loc);
     return loc;
   }
 
@@ -1405,25 +1407,42 @@
           <button class="btn sm danger" data-act="obs-del" data-i="${i}" style="margin-top:8px">${ic('trash')}Hapus guru ini</button></div>`).join('')}
         <button class="btn" data-act="obs-add">${ic('plus')}Tambah guru yang diobservasi</button></div>`;
     }
-    h += refCard(rep, s);   // refleksi tepat di atas capaian: capaian otomatis dihitung dari refleksi
-    // refleksi diambil sebelum fitur ini ada: hitung sekarang (disimpan bila boleh mengedit)
-    if (rep.refleksi && rep.capaianAuto === undefined) { hitungCapaian(rep); if (!readOnly) touch(); }
+    h += refCard(rep, s);   // refleksi tepat di atas capaian: capaian otomatis dihitung dari refleksi (dan postes untuk P1–P7)
+    // capaian belum pernah dihitung: hitung sekarang (disimpan bila boleh mengedit).
+    // Laporan terkunci/hanya baca hanya ditampilkan dengan aturan lama (semua dari refleksi), tidak mengubah yang sudah disahkan.
+    if (rep.capaianAuto === undefined && (readOnly ? !!rep.refleksi : perluCapaian(rep))) { hitungCapaian(rep, readOnly); if (!readOnly) touch(); }
+    // dihitung dengan aturan lama (pengetahuan dari refleksi): perbarui bila salinan ini yang terbaru, supaya tidak bentrok
+    else if (!readOnly && rep.capaianVer !== CAP_VER && perluCapaian(rep)) {
+      const rk0 = S.rekap.get(rep.key);
+      if (rep._dirty || !rk0 || (rep._version || 0) >= (Number(rk0.version) || 0)) { hitungCapaian(rep); touch(); }
+    }
     const auto = rep.capaianAuto, NAMA = I.capaianNama(rep.refleksi && rep.refleksi.items), Lbl = x => NAMA[x] || x;
     const lamaRef = rep.refleksi && (rep.refleksi.items || []).some(o => o.jenis === 'GRID' && (o.baris || []).length && o.baris.every(b => /^\d+$/.test(String(b.top || ''))));
     const bawaan = 'Bawaan: ' + Lbl('paham') + '.';
-    const subCap = auto ? `Mengikuti rata-rata skor refleksi peserta (dikunci): ≥ 4,5 ${Lbl('sangat')} · 3,5–4,4 ${Lbl('paham')} · 2,5–3,4 ${Lbl('cukup')} · 1,5–2,4 ${Lbl('kurang')} · < 1,5 ${Lbl('belum')} (skala 1–5). Indikator tanpa pernyataan refleksi yang cocok dipilih sendiri.`
+    // P1–P7 dengan aturan baru: pengetahuan dari postes, keterampilan dari refleksi
+    const pakaiPost = R.hasTes(rep.no) && (rep.capaianVer === CAP_VER || (!auto && !readOnly));
+    const refAuto = !!auto && Object.values(auto).some(a => a && a.sumber !== 'postes');
+    const mxP = (Object.values(auto || {}).find(a => a && a.sumber === 'postes') || {}).max || ((I.rataPostes((rep.tes && rep.tes.rows) || []) || {}).skala) || 100;
+    const bp = I.batasPostes(mxP), kf = x => String(x).replace('.', ',');
+    const skalaPost = `≥ ${kf(bp.sangat)} ${Lbl('sangat')} · ${kf(bp.paham)}–<${kf(bp.sangat)} ${Lbl('paham')} · ${kf(bp.cukup)}–<${kf(bp.paham)} ${Lbl('cukup')} · ${kf(bp.kurang)}–<${kf(bp.cukup)} ${Lbl('kurang')} · < ${kf(bp.kurang)} ${Lbl('belum')} (nilai maksimum ${mxP})`;
+    const skala15 = `≥ 4,5 ${Lbl('sangat')} · 3,5–4,4 ${Lbl('paham')} · 2,5–3,4 ${Lbl('cukup')} · 1,5–2,4 ${Lbl('kurang')} · < 1,5 ${Lbl('belum')} (skala 1–5)`;
+    const teksRef = refAuto ? `${pakaiPost ? '<b>Keterampilan</b> mengikuti' : 'Mengikuti'} rata-rata skor refleksi peserta (dikunci): ${skala15}. Indikator tanpa pernyataan refleksi yang cocok dipilih sendiri.`
       : lamaRef ? 'Rangkuman refleksi laporan ini dibuat versi lama. Ketuk <b>Perbarui dari Google Form</b> di kartu Refleksi peserta di atas agar capaian terisi otomatis. ' + bawaan
-      : rep.refleksi ? 'Refleksi tidak berisi pernyataan berskala, jadi capaian dipilih sendiri. ' + bawaan
-      : 'Menentukan kalimat Kondisi Akhir. ' + bawaan + (adaRefleksi(rep.no) ? ' Ambil refleksi peserta di atas agar terisi otomatis.' : '');
+      : rep.refleksi ? `Refleksi tidak berisi pernyataan berskala, jadi capaian ${pakaiPost ? 'keterampilan ' : ''}dipilih sendiri. ` + bawaan
+      : (pakaiPost ? '<b>Keterampilan</b> mengikuti refleksi peserta setelah refleksi masuk; sementara dipilih sendiri. ' : 'Menentukan kalimat Kondisi Akhir. ') + bawaan + (adaRefleksi(rep.no) && !pakaiPost ? ' Ambil refleksi peserta di atas agar terisi otomatis.' : '');
+    const subCap = pakaiPost ? `<b>Pengetahuan</b> mengikuti rata-rata postes${adaPostes(rep) ? ' (dikunci)' : ' setelah postes masuk'}: ${skalaPost}. ${teksRef}` : teksRef;
     h += `<div class="card"><div class="card-h">${ic('check')}<h2>Capaian indikator</h2></div><p class="small muted" style="margin-top:-6px">${subCap}</p>
       ${R.indikatorList(rep.no).map(i => {
         const v = R.capaianNorm(rep.capaian[i.id]), a = auto && auto[i.id], man = !!rep.capaianManual[i.id];
+        const dariPost = !!a && a.sumber === 'postes';
         let dasar = '';
-        if (a) dasar = `Dari refleksi: rata-rata ${String(a.avg).replace('.', ',')}${a.satuSkala ? ' dari ' + a.max : ''} · “${esc(a.dasar[0])}”${a.dasar.length > 1 ? ` dan ${a.dasar.length - 1} pernyataan lain` : ''}`;
-        else if (auto) dasar = 'Tidak ada pernyataan refleksi yang cocok; pilih sendiri (bawaan: ' + Lbl('paham') + ').';
+        if (dariPost) dasar = `Dari postes: rata-rata ${R.fmt(a.avg)} dari ${a.max} · ${a.n} peserta`;
+        else if (a) dasar = `Dari refleksi: rata-rata ${String(a.avg).replace('.', ',')}${a.satuSkala ? ' dari ' + a.max : ''} · “${esc(a.dasar[0])}”${a.dasar.length > 1 ? ` dan ${a.dasar.length - 1} pernyataan lain` : ''}`;
+        else if (pakaiPost && i.dim === 'Pengetahuan') dasar = 'Mengikuti rata-rata postes setelah postes masuk; sementara pilih sendiri (bawaan: ' + Lbl('paham') + ').';
+        else if (refAuto) dasar = 'Tidak ada pernyataan refleksi yang cocok; pilih sendiri (bawaan: ' + Lbl('paham') + ').';
         const kunci = readOnly || !!a;
         return `<div class="ind"><div><span class="pill navy">${i.dim}</span> ${esc(i.teks)}${dasar ? `<div class="tiny muted capdasar">${dasar}</div>` : ''}</div>
-        <div class="seg seg5${a ? ' kunci' : ''}"${a ? ' title="Mengikuti refleksi peserta"' : ''}>${I.CAPAIAN.map(x => `<button data-act="cap" data-id="${i.id}" data-v="${x}" class="${v === x ? 'on' : ''}"${kunci ? ' disabled' : ''}>${esc(Lbl(x))}</button>`).join('')}${a ? `<span class="segkunci">${ic('lock')}</span>` : ''}</div></div>`; }).join('')}</div>`;
+        <div class="seg seg5${a ? ' kunci' : ''}"${a ? ` title="Mengikuti ${dariPost ? 'rata-rata postes' : 'refleksi peserta'}"` : ''}>${I.CAPAIAN.map(x => `<button data-act="cap" data-id="${i.id}" data-v="${x}" class="${v === x ? 'on' : ''}"${kunci ? ' disabled' : ''}>${esc(Lbl(x))}</button>`).join('')}${a ? `<span class="segkunci">${ic('lock')}</span>` : ''}</div></div>`; }).join('')}</div>`;
     const tf = (k, label, auto) => `<div style="margin-top:12px"><div class="row"><label class="f" style="margin:0">${label}</label><span class="spacer"></span>
       <span class="tiny muted" id="tm-${k}">${rep.teks[k] ? 'diedit manual' : 'otomatis'}</span>
       <button class="btn sm ghost" data-act="teks-reset" data-k="${k}">Kembalikan otomatis</button></div>
@@ -1544,9 +1563,9 @@
     if (S.imp && S.impMode === 'ref') return h + impMapping(rep, s) + '</div>';
     const btnForm = label => `<button class="btn ${R0 ? '' : 'pri'}" data-act="ref-form"${S.impForm ? ' disabled' : ''}>${S.impForm ? '<span class="spin"></span>Mengambil jawaban…' : ic('download') + label}</button>`;
     if (!R0) {
-      if (adaForm) return h + `<p style="margin-top:-4px">Jawaban refleksi <b>${esc(s.nama)}</b> masuk <b>otomatis dari Google Form</b>. Capaian indikator dihitung dari jawaban ini (bagian Capaian Indikator di PDF); kesimpulan dan rangkuman tercetak di Lampiran; peserta yang mengisi dicentang hadir.</p>${otoInfo(rep, 'ref')}</div>`;
+      if (adaForm) return h + `<p style="margin-top:-4px">Jawaban refleksi <b>${esc(s.nama)}</b> masuk <b>otomatis dari Google Form</b>. Capaian indikator ${R.hasTes(rep.no) ? 'keterampilan ' : ''}dihitung dari jawaban ini (bagian Capaian Indikator di PDF); kesimpulan dan rangkuman tercetak di Lampiran; peserta yang mengisi dicentang hadir.</p>${otoInfo(rep, 'ref')}</div>`;
       if (readOnly) return h + '<p class="muted" style="margin:0">Refleksi belum diambil.</p></div>';
-      return h + `<p style="margin-top:-4px">Ambil jawaban refleksi <b>${esc(s.nama)}</b> langsung dari Google Form. Capaian indikator dihitung dari jawaban ini (bagian Capaian Indikator di PDF); kesimpulan dan rangkuman tercetak di Lampiran; peserta yang mengisi dicentang hadir.</p>
+      return h + `<p style="margin-top:-4px">Ambil jawaban refleksi <b>${esc(s.nama)}</b> langsung dari Google Form. Capaian indikator ${R.hasTes(rep.no) ? 'keterampilan ' : ''}dihitung dari jawaban ini (bagian Capaian Indikator di PDF); kesimpulan dan rangkuman tercetak di Lampiran; peserta yang mengisi dicentang hadir.</p>
         <div class="row">${btnForm('Ambil refleksi dari Google Form')}</div></div>`;
     }
     const hadir = (rep.hadir || []).length;
@@ -1601,6 +1620,9 @@
   }
   /* Arti skor yang diketik fasil: dipakai untuk skala yang artinya tidak ditemukan di form */
   const skalaRef = o => o.jenis === 'SCALE' || o.jenis === 'GSCALE';
+  const CAP_VER = 2;   // 2 = capaian pengetahuan P1–P7 dari postes (sebelumnya semua dari refleksi)
+  const adaPostes = rep => R.hasTes(rep.no) && !!(rep.tes && (rep.tes.rows || []).some(r => r.jenis === 'post'));
+  const perluCapaian = rep => !!(rep.refleksi && typeof rep.refleksi === 'object') || adaPostes(rep);
   function terapkanArti(items, arti) {
     items.filter(skalaRef).forEach(o => {
       if (o.labManual) { o.lab = {}; delete o.labManual; }
@@ -1609,15 +1631,20 @@
       if (Object.keys(m).length) { o.lab = m; o.labManual = true; }
     });
   }
-  /* Capaian indikator otomatis dari refleksi; pilihan fasil (capaianManual) tidak ditimpa */
-  function hitungCapaian(rep) {
-    const ids = R.indikatorList(rep.no).map(i => i.id);
-    rep.capaianAuto = rep.refleksi && rep.refleksi.items ? I.refCapaian(rep.refleksi.items, R.indikatorList(rep.no)) : null;
-    ids.forEach(id => {
-      const a = rep.capaianAuto && rep.capaianAuto[id];
-      // indikator yang cocok dengan pernyataan refleksi dikunci mengikuti refleksi
-      if (a) { rep.capaian[id] = a.v; delete rep.capaianManual[id]; return; }
-      if (!rep.capaianManual[id]) delete rep.capaian[id];
+  /* Capaian indikator otomatis (aturan versi 2, sama dengan server):
+   * - P1–P7: Pengetahuan dari rata-rata postes; Keterampilan dari refleksi.
+   * - P8–P22 (tanpa tes): semua indikator dari refleksi.
+   * Indikator otomatis dikunci; yang tidak punya sumber dipilih fasil (capaianManual tidak ditimpa).
+   * lama = true: aturan sebelumnya (semua dari refleksi), hanya untuk menampilkan laporan terkunci yang belum punya hasil hitung. */
+  function hitungCapaian(rep, lama) {
+    const ind = R.indikatorList(rep.no);
+    rep.capaian = rep.capaian || {}; rep.capaianManual = rep.capaianManual || {};
+    rep.capaianAuto = I.capaianOtomatis(ind, rep.refleksi && rep.refleksi.items, R.hasTes(rep.no) && !lama ? ((rep.tes && rep.tes.rows) || []) : null);
+    if (!lama) rep.capaianVer = CAP_VER;
+    ind.forEach(i => {
+      const a = rep.capaianAuto && rep.capaianAuto[i.id];
+      if (a) { rep.capaian[i.id] = a.v; delete rep.capaianManual[i.id]; return; }
+      if (!rep.capaianManual[i.id]) delete rep.capaian[i.id];
     });
   }
   function susunKesimpulan(rep) {
@@ -1848,6 +1875,7 @@
     const byKey = new Map();
     rows.forEach(r => { const k = r.jenis + '|' + I.normName(r.nama); if (!byKey.has(k)) byKey.set(k, r); });   // kiriman pertama
     rep.tes = { fileName: imp.fileName, importedAt: Date.now(), rows: [...byKey.values()] };
+    hitungCapaian(rep);   // capaian pengetahuan mengikuti rata-rata postes
     const newAlias = [...imp.schools].filter(v => v.trim().toLowerCase() !== s.nama.trim().toLowerCase() && !(s.alias || []).includes(v));
     if (newAlias.length && canEdit(s)) { s.alias = (s.alias || []).concat(newAlias); saveSekolahDeb(s.id); }
     rep.hadir = [...hadir];
@@ -1855,7 +1883,7 @@
     markPeserta(s.id);
     touch(); rerenderStep();
     const st = R.stats(rep);
-    toast(`Nilai diambil: ${st.preN} pretes, ${st.postN} postes${baru ? ' · ' + baru + ' peserta baru' : ''}${ejaan ? ' · ' + ejaan + ' ejaan nama diingat' : ''}${abaikan ? ' · ' + abaikan + ' baris diabaikan' : ''}. Kehadiran dicentang otomatis.`, false, 6000);
+    toast(`Nilai diambil: ${st.preN} pretes, ${st.postN} postes${baru ? ' · ' + baru + ' peserta baru' : ''}${ejaan ? ' · ' + ejaan + ' ejaan nama diingat' : ''}${abaikan ? ' · ' + abaikan + ' baris diabaikan' : ''}. Kehadiran dicentang otomatis.${st.postN ? ' Capaian pengetahuan mengikuti rata-rata postes.' : ''}`, false, 6000);
   }
 
   /* Langkah "Periksa nama": nama dari form yang tidak sama persis dengan daftar guru */
@@ -2553,13 +2581,13 @@
       case 'ref-del': if (confirm('Hapus data refleksi dari laporan ini? Jawaban di Google Form tidak terhapus dan bisa diambil lagi.')) { S.cur.refleksi = null; hitungCapaian(S.cur); touch(); rerenderStep(true); } break;
       case 'imp-revback': if (S.imp) { S.imp.review = null; S.imp.ex = null; } rerenderStep(); break;
       case 'gabung': openGabung(b.dataset.sid); break;
-      case 'tes-del': if (confirm('Hapus data nilai pretes/postes laporan ini?')) { rep.tes = null; touch(); rerenderStep(); } break;
+      case 'tes-del': if (confirm('Hapus data nilai pretes/postes laporan ini?')) { rep.tes = null; hitungCapaian(rep); touch(); rerenderStep(); } break;
       case 'akt-toggle': { const k = editKeg(); k[b.dataset.si].aktivitas[b.dataset.ai].aktif = b.checked; b.closest('.akt').classList.toggle('off', !b.checked); touch(); break; }
       case 'akt-del': { const k = editKeg(); k[b.dataset.si].aktivitas.splice(b.dataset.ai, 1); touch(); rerenderStep(); break; }
       case 'akt-add': { const k = editKeg(); k[b.dataset.si].aktivitas.push({ teks: '', aktif: true }); touch(); rerenderStep();
         const ins = document.querySelectorAll(`[data-akt^="${b.dataset.si}|"]`); if (ins.length) ins[ins.length - 1].focus(); break; }
       case 'keg-reset': if (confirm('Kembalikan langkah kegiatan sesuai silabus? Perubahan teks & catatan sesi akan hilang.')) { rep.kegiatan = null; touch(); rerenderStep(); } break;
-      case 'cap': if (rep.capaianAuto && rep.capaianAuto[b.dataset.id]) break;   // mengikuti refleksi
+      case 'cap': if (rep.capaianAuto && rep.capaianAuto[b.dataset.id]) break;   // mengikuti postes/refleksi (dikunci)
         rep.capaian[b.dataset.id] = b.dataset.v; rep.capaianManual[b.dataset.id] = true; touch(); rerenderStep(true); break;
       case 'cap-auto': delete rep.capaianManual[b.dataset.id]; hitungCapaian(rep); touch(); rerenderStep(true); break;
       case 'obs-add': rep.observasi = (rep.observasi || []).concat({ guru: '', kelas: '', kekuatan: '', perbaikan: '', tindakLanjut: '' }); touch(); rerenderStep(); break;

@@ -455,39 +455,86 @@
       ], [[R.fmt(st.pre) + ' (n=' + st.preN + ')', R.fmt(st.post) + ' (n=' + st.postN + ')', R.fmt(st.selisih), st.persen === null ? '-' : R.fmt(st.persen) + '%']], { size: 10 });
     }
 
-    // Capaian indikator: penilaian diri peserta dari data refleksi (rincian refleksi ada di Lampiran)
-    const rf = rep.refleksi;
-    if (rf && rf.n) {
-      const I = window.Importer, NAMA = I && I.capaianNama ? I.capaianNama(rf.items) : { sangat: 'Sangat memahami', paham: 'Memahami', cukup: 'Cukup', kurang: 'Kurang', belum: 'Belum memahami' };
-      const auto = rep.capaianAuto || {}, ind = R.indikatorList(rep.no);
+    // Capaian indikator.
+    // - Pendampingan bertes (P1–P7): a. Pengetahuan dari rata-rata postes, b. Keterampilan dari refleksi (penilaian diri).
+    // - Pendampingan tanpa tes, atau laporan yang dihitung sebelum aturan ini: seluruhnya dari refleksi (susunan sebelumnya).
+    const rf = rep.refleksi && rep.refleksi.n ? rep.refleksi : null;
+    const auto = rep.capaianAuto || {}, ind = R.indikatorList(rep.no);
+    const dariPost = ind.filter(i => auto[i.id] && auto[i.id].sumber === 'postes');
+    if (rf || dariPost.length) {
+      const I = window.Importer, NAMA = I && I.capaianNama ? I.capaianNama(rf ? rf.items : []) : { sangat: 'Sangat memahami', paham: 'Memahami', cukup: 'Cukup', kurang: 'Kurang', belum: 'Belum memahami' };
       const nHadir = R.hadirList(rep, school).length;
-      const pct = nHadir ? Math.round(rf.n * 100 / nHadir) : 0;
+      const pct = nHadir && rf ? Math.round(rf.n * 100 / nHadir) : 0;
       const kecil = t => String(t || '').toLowerCase();
-      w.h1(++n, 'Capaian Indikator (Penilaian Diri Peserta)');
-      w.para('Capaian indikator berikut merupakan penilaian diri (self-assessment) peserta yang diperoleh dari data hasil refleksi pendampingan. Refleksi diisi oleh ' + rf.n + ' peserta' +
-        (nHadir ? ' dari ' + nHadir + ' peserta yang hadir (' + pct + '%)' : '') + ' melalui Google Form. Rata-rata skor pernyataan refleksi yang sesuai dengan setiap indikator dipetakan ke lima tingkat capaian (skala 1–5): 4,5–5 ' +
-        kecil(NAMA.sangat) + '; 3,5–4,4 ' + kecil(NAMA.paham) + '; 2,5–3,4 ' + kecil(NAMA.cukup) + '; 1,5–2,4 ' + kecil(NAMA.kurang) + '; di bawah 1,5 ' + kecil(NAMA.belum) + '.', { first: 28 });
-      const rows = ind.map((i, k) => {
-        const a = auto[i.id], c = R.capaianNorm(rep.capaian[i.id]);
-        return a ? [k + 1, i.teks, (a.dasar || []).join('; ') || '-', String(a.avg).replace('.', ',') + (a.satuSkala ? ' dari ' + a.max : ''), NAMA[c] || c]
-          : [k + 1, i.teks, '-', '-', (NAMA[c] || c) + ' (ditetapkan fasilitator)'];
-      });
-      w.table([{ t: 'No', w: 0.06, align: 'center' }, { t: 'Indikator', w: 0.32 }, { t: 'Pernyataan refleksi acuan', w: 0.3 }, { t: 'Rata-rata skor', w: 0.13, align: 'center' }, { t: 'Capaian', w: 0.19 }], rows, { size: 9.5 });
-      // indikator tertinggi & terendah, serta yang perlu penguatan
-      const dinilai = ind.filter(i => auto[i.id]).map(i => ({ i, a: auto[i.id], x5: 1 + 4 * ((auto[i.id].avg - 1) / Math.max(1, (auto[i.id].max || 5) - 1)) }));
+      const koma = x => String(x).replace('.', ',');
       const kutip = t => '“' + String(t).replace(/^Peserta\s+/i, '').replace(/\.$/, '') + '”';
-      const kal = [];
-      if (dinilai.length >= 2) {
-        const urut = dinilai.slice().sort((p, q) => q.x5 - p.x5);
-        const hi = urut[0], lo = urut[urut.length - 1];
-        if (hi.x5 - lo.x5 >= 0.05) kal.push('Capaian tertinggi pada indikator ' + kutip(hi.i.teks) + ' (rata-rata ' + String(hi.a.avg).replace('.', ',') + '), sedangkan yang terendah pada indikator ' + kutip(lo.i.teks) + ' (rata-rata ' + String(lo.a.avg).replace('.', ',') + ').');
-        else kal.push('Rata-rata skor semua indikator yang dinilai relatif sama.');
+      const capOf = i => R.capaianNorm(rep.capaian[i.id]);
+      const LEMAH = ['cukup', 'kurang', 'belum'];
+      const kalRefleksi = () => 'Refleksi diisi oleh ' + rf.n + ' peserta' + (nHadir ? ' dari ' + nHadir + ' peserta yang hadir (' + pct + '%)' : '') +
+        ' melalui Google Form. Rata-rata skor pernyataan refleksi yang sesuai dengan setiap indikator dipetakan ke lima tingkat capaian (skala 1–5): 4,5–5 ' +
+        kecil(NAMA.sangat) + '; 3,5–4,4 ' + kecil(NAMA.paham) + '; 2,5–3,4 ' + kecil(NAMA.cukup) + '; 1,5–2,4 ' + kecil(NAMA.kurang) + '; di bawah 1,5 ' + kecil(NAMA.belum) + '.';
+      // tabel indikator dari refleksi: No | Indikator | Pernyataan refleksi acuan | Rata-rata skor | Capaian
+      const tabelRef = (list, x) => w.table([{ t: 'No', w: 0.06, align: 'center' }, { t: 'Indikator', w: 0.32 }, { t: 'Pernyataan refleksi acuan', w: 0.3 }, { t: 'Rata-rata skor', w: 0.13, align: 'center' }, { t: 'Capaian', w: 0.19 }],
+        list.map((i, k) => {
+          const a = auto[i.id], c = capOf(i);
+          return a ? [k + 1, i.teks, (a.dasar || []).join('; ') || '-', koma(a.avg) + (a.satuSkala ? ' dari ' + a.max : ''), NAMA[c] || c]
+            : [k + 1, i.teks, '-', '-', (NAMA[c] || c) + ' (ditetapkan fasilitator)'];
+        }), Object.assign({ size: 9.5 }, x === undefined ? {} : { x }));
+      // indikator tertinggi & terendah di antara yang dinilai dari refleksi (skala dipetakan ke 1–5)
+      const kalTinggiRendah = list => {
+        const dinilai = list.filter(i => auto[i.id] && auto[i.id].sumber !== 'postes').map(i => {
+          const a = auto[i.id], mn = a.min !== undefined ? a.min : 1;
+          return { i, a, x5: 1 + 4 * ((a.avg - mn) / Math.max(1, (a.max || 5) - mn)) };
+        });
+        if (dinilai.length < 2) return '';
+        const urut = dinilai.slice().sort((p, q) => q.x5 - p.x5), hi = urut[0], lo = urut[urut.length - 1];
+        return hi.x5 - lo.x5 >= 0.05 ? 'Capaian tertinggi pada indikator ' + kutip(hi.i.teks) + ' (rata-rata ' + koma(hi.a.avg) + '), sedangkan yang terendah pada indikator ' + kutip(lo.i.teks) + ' (rata-rata ' + koma(lo.a.avg) + ').'
+          : 'Rata-rata skor semua indikator yang dinilai relatif sama.';
+      };
+      const kalLemah = (list, awal) => {
+        const lemah = list.filter(i => LEMAH.includes(capOf(i)));
+        return lemah.length ? awal + R.gabung(lemah.map(i => kutip(i.teks))) + ' masih berada pada tingkat ' + R.gabung([...new Set(lemah.map(i => kecil(NAMA[capOf(i)])))]) + ' sehingga perlu penguatan pada pendampingan berikutnya.' : '';
+      };
+
+      if (!dariPost.length) {
+        // susunan sebelumnya: seluruh capaian dari refleksi
+        w.h1(++n, 'Capaian Indikator (Penilaian Diri Peserta)');
+        w.para('Capaian indikator berikut merupakan penilaian diri (self-assessment) peserta yang diperoleh dari data hasil refleksi pendampingan. ' + kalRefleksi(), { first: 28 });
+        tabelRef(ind);
+        const kal = [kalTinggiRendah(ind)], lemah = kalLemah(ind, 'Indikator ');
+        if (lemah) kal.push(lemah);
+        else if (ind.some(i => auto[i.id])) kal.push('Seluruh indikator berada pada tingkat ' + kecil(NAMA.paham) + ' atau lebih tinggi.');
+        if (kal.some(Boolean)) w.para(kal.filter(Boolean).join(' '), { first: 28 });
+        w.para('Rincian jawaban refleksi peserta dimuat pada Lampiran.', { first: 28, font: fonts.ital });
+      } else {
+        const IN = IND + 16;   // isi di bawah sub-judul a/b
+        const a0 = auto[dariPost[0].id], cP = capOf(dariPost[0]), mx = a0.max || 100;
+        const b = I.batasPostes ? I.batasPostes(mx) : { sangat: 0.9 * mx, paham: 0.7 * mx, cukup: 0.5 * mx, kurang: 0.3 * mx };
+        const indP = ind.filter(i => i.dim === 'Pengetahuan'), indK = ind.filter(i => i.dim !== 'Pengetahuan');
+        w.h1(++n, 'Capaian Indikator');
+        w.h2('a', 'Pengetahuan');
+        w.para('Capaian indikator pengetahuan diukur dari hasil postes. Rata-rata nilai postes ' + a0.n + ' peserta adalah ' + R.fmt(a0.avg) + ' dari nilai maksimum ' + mx + ', lalu dikelompokkan ke lima tingkat capaian: ' +
+          koma(b.sangat) + '–' + mx + ' ' + kecil(NAMA.sangat) + '; ' + koma(b.paham) + ' sampai di bawah ' + koma(b.sangat) + ' ' + kecil(NAMA.paham) + '; ' +
+          koma(b.cukup) + ' sampai di bawah ' + koma(b.paham) + ' ' + kecil(NAMA.cukup) + '; ' + koma(b.kurang) + ' sampai di bawah ' + koma(b.cukup) + ' ' + kecil(NAMA.kurang) + '; di bawah ' +
+          koma(b.kurang) + ' ' + kecil(NAMA.belum) + '. Dengan demikian, capaian indikator pengetahuan berada pada tingkat ' + kecil(NAMA[cP]) + '.', { x: IN, first: 28 });
+        w.table([{ t: 'No', w: 0.07, align: 'center' }, { t: 'Indikator', w: 0.53 }, { t: 'Rata-rata postes', w: 0.18, align: 'center' }, { t: 'Capaian', w: 0.22 }],
+          indP.map((i, k) => {
+            const a = auto[i.id], c = capOf(i);
+            return a ? [k + 1, i.teks, R.fmt(a.avg), NAMA[c] || c] : [k + 1, i.teks, '-', (NAMA[c] || c) + ' (ditetapkan fasilitator)'];
+          }), { size: 9.5, x: IN });
+        w.h2('b', 'Keterampilan');
+        w.para(rf ? 'Capaian indikator keterampilan merupakan penilaian diri (self-assessment) peserta yang diperoleh dari data hasil refleksi pendampingan. ' + kalRefleksi()
+          : 'Data refleksi peserta belum tersedia, sehingga capaian indikator keterampilan ditetapkan fasilitator.', { x: IN, first: 28 });
+        tabelRef(indK, IN);
+        const kal = [];
+        if (LEMAH.includes(cP)) kal.push('Capaian pengetahuan masih berada pada tingkat ' + kecil(NAMA[cP]) + ' sehingga perlu penguatan pada pendampingan berikutnya.');
+        kal.push(kalTinggiRendah(indK));
+        const lemahK = kalLemah(indK, 'Indikator keterampilan ');
+        if (lemahK) kal.push(lemahK);
+        if (ind.every(i => !LEMAH.includes(capOf(i)))) kal.push('Seluruh indikator berada pada tingkat ' + kecil(NAMA.paham) + ' atau lebih tinggi.');
+        if (kal.some(Boolean)) w.para(kal.filter(Boolean).join(' '), { x: IN, first: 28 });
+        if (rf) w.para('Rincian jawaban refleksi peserta dimuat pada Lampiran.', { x: IN, first: 28, font: fonts.ital });
       }
-      const lemah = ind.filter(i => ['cukup', 'kurang', 'belum'].includes(R.capaianNorm(rep.capaian[i.id])));
-      if (lemah.length) kal.push((lemah.length === 1 ? 'Indikator ' : 'Indikator ') + R.gabung(lemah.map(i => kutip(i.teks))) + ' masih berada pada tingkat ' + R.gabung([...new Set(lemah.map(i => kecil(NAMA[R.capaianNorm(rep.capaian[i.id])])))]) + ' sehingga perlu penguatan pada pendampingan berikutnya.');
-      else if (dinilai.length) kal.push('Seluruh indikator berada pada tingkat ' + kecil(NAMA.paham) + ' atau lebih tinggi.');
-      if (kal.length) w.para(kal.join(' '), { first: 28 });
-      w.para('Rincian jawaban refleksi peserta dimuat pada Lampiran.', { first: 28, font: fonts.ital });
     }
 
     w.h1(++n, 'Evaluasi');
