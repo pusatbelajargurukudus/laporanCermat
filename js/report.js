@@ -160,7 +160,18 @@
   R.kondisiAkhir = function (rep) {
     if ((rep.teks.kondisiAkhir || '').trim()) return rep.teks.kondisiAkhir.trim();
     const s = R.sil(rep.no);
-    const items = R.indikatorList(rep.no).map(i => {
+    // pengetahuan dari rata-rata postes (satu nilai untuk semua indikator): digabung menjadi satu butir
+    const auto = rep.capaianAuto || {}, ind = R.indikatorList(rep.no);
+    const indP = ind.filter(i => i.dim === 'Pengetahuan' && auto[i.id] && auto[i.id].sumber === 'postes');
+    const gab = indP.length > 1 && indP.length === ind.filter(i => i.dim === 'Pengetahuan').length;
+    const items = [];
+    if (gab) {
+      const c = R.capaianNorm(rep.capaian[indP[0].id]);
+      const inti = gabung(indP.map(i => klausa(i.teks).replace(/^(dapat|mampu)\s+/i, '')));
+      items.push(c === 'sangat' ? 'peserta dapat ' + inti + ' dengan sangat baik' : c === 'cukup' ? 'peserta dapat ' + inti + ' dengan cukup baik'
+        : c === 'kurang' ? 'peserta masih kurang mampu ' + inti : c === 'belum' ? 'peserta belum dapat ' + inti : 'peserta dapat ' + inti);
+    }
+    ind.filter(i => !(gab && indP.indexOf(i) >= 0)).map(i => {
       const c = R.capaianNorm(rep.capaian[i.id]);
       const k = klausa(i.teks);
       if (c === 'sangat') return 'peserta ' + k + ' dengan sangat baik';
@@ -168,7 +179,7 @@
       if (c === 'kurang') return 'peserta masih kurang mampu ' + k.replace(/^(dapat|mampu)\s+/i, '');
       if (c === 'belum') return 'peserta belum ' + k;
       return 'peserta ' + k;
-    });
+    }).forEach(t => items.push(t));
     const st = R.stats(rep);
     if (R.hasTes(rep.no) && st && st.post !== null) {
       let t = 'skor rata-rata postes peserta adalah ' + R.fmt(st.post);

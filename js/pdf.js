@@ -207,7 +207,9 @@
       const tw = (o.w || CW - o.x);
       const widths = cols.map(c => c.w * tw);
       const lhpt = o.size * o.lh;
-      const cellLines = (row, font) => row.map((cell, i) => this.wrap(cell === null || cell === undefined ? '' : String(cell), font, o.size, widths[i] - o.pad * 2));
+      // o.pecahBaris: baris baru di dalam sel (\n) dipatuhi; tabel lain tetap seperti sebelumnya
+      const cellLines = (row, font) => row.map((cell, i) => { const s = cell === null || cell === undefined ? '' : String(cell);
+        return o.pecahBaris ? [].concat(...s.split('\n').map(p => this.wrap(p, font, o.size, widths[i] - o.pad * 2))) : this.wrap(s, font, o.size, widths[i] - o.pad * 2); });
       const rowH = lines => Math.max.apply(null, lines.map(l => l.length)) * lhpt + o.pad * 2;
       const drawRow = (row, font, fill) => {
         const lines = cellLines(row, font);
@@ -516,12 +518,14 @@
         w.para('Capaian indikator pengetahuan diukur dari hasil postes. Rata-rata nilai postes ' + a0.n + ' peserta adalah ' + R.fmt(a0.avg) + ' dari nilai maksimum ' + mx + ', lalu dikelompokkan ke lima tingkat capaian: ' +
           koma(b.sangat) + '–' + mx + ' ' + kecil(NAMA.sangat) + '; ' + koma(b.paham) + ' sampai di bawah ' + koma(b.sangat) + ' ' + kecil(NAMA.paham) + '; ' +
           koma(b.cukup) + ' sampai di bawah ' + koma(b.paham) + ' ' + kecil(NAMA.cukup) + '; ' + koma(b.kurang) + ' sampai di bawah ' + koma(b.cukup) + ' ' + kecil(NAMA.kurang) + '; di bawah ' +
-          koma(b.kurang) + ' ' + kecil(NAMA.belum) + '. Dengan demikian, capaian indikator pengetahuan berada pada tingkat ' + kecil(NAMA[cP]) + '.', { x: IN, first: 28 });
-        w.table([{ t: 'No', w: 0.07, align: 'center' }, { t: 'Indikator', w: 0.53 }, { t: 'Rata-rata postes', w: 0.18, align: 'center' }, { t: 'Capaian', w: 0.22 }],
-          indP.map((i, k) => {
-            const a = auto[i.id], c = capOf(i);
-            return a ? [k + 1, i.teks, R.fmt(a.avg), NAMA[c] || c] : [k + 1, i.teks, '-', (NAMA[c] || c) + ' (ditetapkan fasilitator)'];
-          }), { size: 9.5, x: IN });
+          koma(b.kurang) + ' ' + kecil(NAMA.belum) + '. Karena satu rata-rata postes berlaku untuk semua indikator pengetahuan, ' + (dariPost.length > 1 ? 'capaian ' + dariPost.length + ' indikator pengetahuan berikut digabung dan' : 'capaian indikator pengetahuan') +
+          ' berada pada tingkat ' + kecil(NAMA[cP]) + '.', { x: IN, first: 28 });
+        // satu baris: semua indikator pengetahuan (dari postes) dalam satu sel, rata-rata & capaian sekali saja
+        w.table([{ t: 'Indikator Pengetahuan', w: 0.6 }, { t: 'Rata-rata postes', w: 0.18, align: 'center' }, { t: 'Capaian', w: 0.22 }],
+          [[dariPost.map((i, k) => (k + 1) + '. ' + i.teks).join('\n'), R.fmt(a0.avg) + ' dari ' + mx, NAMA[cP] || cP]], { size: 9.5, x: IN, pecahBaris: true });
+        // indikator pengetahuan tanpa nilai postes (tidak terjadi bila postes ada; berjaga-jaga)
+        const lainP = indP.filter(i => dariPost.indexOf(i) < 0);
+        if (lainP.length) tabelRef(lainP, IN);
         w.h2('b', 'Keterampilan');
         w.para(rf ? 'Capaian indikator keterampilan merupakan penilaian diri (self-assessment) peserta yang diperoleh dari data hasil refleksi pendampingan. ' + kalRefleksi()
           : 'Data refleksi peserta belum tersedia, sehingga capaian indikator keterampilan ditetapkan fasilitator.', { x: IN, first: 28 });

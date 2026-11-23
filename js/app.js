@@ -1431,8 +1431,17 @@
       : rep.refleksi ? `Refleksi tidak berisi pernyataan berskala, jadi capaian ${pakaiPost ? 'keterampilan ' : ''}dipilih sendiri. ` + bawaan
       : (pakaiPost ? '<b>Keterampilan</b> mengikuti refleksi peserta setelah refleksi masuk; sementara dipilih sendiri. ' : 'Menentukan kalimat Kondisi Akhir. ') + bawaan + (adaRefleksi(rep.no) && !pakaiPost ? ' Ambil refleksi peserta di atas agar terisi otomatis.' : '');
     const subCap = pakaiPost ? `<b>Pengetahuan</b> mengikuti rata-rata postes${adaPostes(rep) ? ' (dikunci)' : ' setelah postes masuk'}: ${skalaPost}. ${teksRef}` : teksRef;
+    // pengetahuan dari postes: satu rata-rata untuk semua indikator -> satu kotak gabungan
+    const indPost = R.indikatorList(rep.no).filter(i => auto && auto[i.id] && auto[i.id].sumber === 'postes');
+    const gabPost = indPost.length ? (() => {
+      const a = auto[indPost[0].id], v = R.capaianNorm(rep.capaian[indPost[0].id]);
+      return `<div class="ind indgab"><div><span class="pill navy">Pengetahuan</span> <span class="tiny muted">dari postes</span>
+        <ol class="indlist">${indPost.map(i => `<li>${esc(i.teks)}</li>`).join('')}</ol>
+        <div class="tiny muted capdasar">Rata-rata postes ${R.fmt(a.avg)} dari ${a.max} · ${a.n} peserta</div></div>
+        <div class="seg seg5 kunci" title="Mengikuti rata-rata postes">${I.CAPAIAN.map(x => `<button data-act="cap" data-v="${x}" class="${v === x ? 'on' : ''}" disabled>${esc(Lbl(x))}</button>`).join('')}<span class="segkunci">${ic('lock')}</span></div></div>`;
+    })() : '';
     h += `<div class="card"><div class="card-h">${ic('check')}<h2>Capaian indikator</h2></div><p class="small muted" style="margin-top:-6px">${subCap}</p>
-      ${R.indikatorList(rep.no).map(i => {
+      ${gabPost}${R.indikatorList(rep.no).filter(i => !indPost.some(x => x.id === i.id)).map(i => {
         const v = R.capaianNorm(rep.capaian[i.id]), a = auto && auto[i.id], man = !!rep.capaianManual[i.id];
         const dariPost = !!a && a.sumber === 'postes';
         let dasar = '';
